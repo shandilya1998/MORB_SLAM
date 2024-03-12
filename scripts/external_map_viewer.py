@@ -23,7 +23,7 @@ def parse_binary_data(binary_data):
             return isFromSLAM, translation_vector
 
 async def main():
-    uri = "ws://172.17.124.222:9002"
+    uri = "ws://192.168.1.1:9002"
 
     figSLAM = plt.figure()
     figAIV = plt.figure()
