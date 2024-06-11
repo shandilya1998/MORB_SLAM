@@ -41,10 +41,7 @@
 
 namespace MORB_SLAM {
 
-void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag,
-                                      std::shared_ptr<Map> pMap, int& num_fixedKF,
-                                      int& num_OptKF, int& num_MPs,
-                                      int& num_edges, bool bInertial) {
+void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr<Map> pMap, bool bInertial) {
   // Local KeyFrames: First Breath Search from Current Keyframe
   std::list<KeyFrame*> lLocalKeyFrames;
 
@@ -60,8 +57,8 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag,
       lLocalKeyFrames.push_back(pKFi);
   }
 
+  int num_fixedKF = 0;
   // Local MapPoints seen in Local KeyFrames
-  num_fixedKF = 0;
   std::list<MapPoint*> lLocalMapPoints;
   std::set<MapPoint*> sNumObsMP;
   for (std::list<KeyFrame*>::iterator lit = lLocalKeyFrames.begin(),
@@ -105,12 +102,11 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag,
       }
     }
   }
-  num_fixedKF = lFixedCameras.size() + num_fixedKF;
+
+  num_fixedKF += lFixedCameras.size();
 
   if (num_fixedKF == 0) {
-    Verbose::PrintMess(
-        "LM-LBA: There are 0 fixed KF in the optimizations, LBA aborted",
-        Verbose::VERBOSITY_NORMAL);
+    Verbose::PrintMess("LM-LBA: There are 0 fixed KF in the optimizations, LBA aborted", Verbose::VERBOSITY_NORMAL);
     return;
   }
 
@@ -154,7 +150,6 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag,
     // DEBUG LBA
     pCurrentMap->msOptKFs.insert(pKFi->mnId);
   }
-  num_OptKF = lLocalKeyFrames.size();
 
   // Set Fixed KeyFrame vertices
   for (std::list<KeyFrame*>::iterator lit = lFixedCameras.begin(),
@@ -342,7 +337,6 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag,
       }
     }
   }
-  num_edges = nEdges;
 
   if (pbStopFlag)
     if (*pbStopFlag) return;
