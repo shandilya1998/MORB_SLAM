@@ -39,8 +39,8 @@ void Optimizer::FullInertialBA(std::shared_ptr<Map> pMap, int its, const bool bF
                                ImuInitializater::ImuInitType priorA, Eigen::VectorXd* vSingVal,
                                bool* bHess) {
   long unsigned int maxKFid = pMap->GetMaxKFid();
-  const std::vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
-  const std::vector<MapPoint*> vpMPs = pMap->GetAllMapPoints();
+  const std::vector<std::shared_ptr<KeyFrame>> vpKFs = pMap->GetAllKeyFrames();
+  const std::vector<std::shared_ptr<MapPoint>> vpMPs = pMap->GetAllMapPoints();
 
   // Setup optimizer
   g2o::SparseOptimizer optimizer;
@@ -62,9 +62,9 @@ void Optimizer::FullInertialBA(std::shared_ptr<Map> pMap, int its, const bool bF
   int nNonFixed = 0;
 
   // Set KeyFrame vertices
-  KeyFrame* pIncKF = nullptr;
+  std::shared_ptr<KeyFrame> pIncKF = nullptr;
   for (size_t i = 0; i < vpKFs.size(); i++) {
-    KeyFrame* pKFi = vpKFs[i];
+    std::shared_ptr<KeyFrame> pKFi = vpKFs[i];
     if (pKFi->mnId > maxKFid) continue;
     VertexPose* VP = new VertexPose(pKFi);
     VP->setId(pKFi->mnId);
@@ -113,7 +113,7 @@ void Optimizer::FullInertialBA(std::shared_ptr<Map> pMap, int its, const bool bF
 
   // IMU links
   for (size_t i = 0; i < vpKFs.size(); i++) {
-    KeyFrame* pKFi = vpKFs[i];
+    std::shared_ptr<KeyFrame> pKFi = vpKFs[i];
 
     if (!pKFi->mPrevKF) {
       if(pMap->GetOriginKF() != pKFi)
@@ -231,7 +231,7 @@ void Optimizer::FullInertialBA(std::shared_ptr<Map> pMap, int its, const bool bF
   std::vector<bool> vbNotIncludedMP(vpMPs.size(), false);
 
   for (size_t i = 0; i < vpMPs.size(); i++) {
-    MapPoint* pMP = vpMPs[i];
+    std::shared_ptr<MapPoint> pMP = vpMPs[i];
     g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();
     vPoint->setEstimate(pMP->GetWorldPos().cast<double>());
     unsigned long id = pMP->mnId + iniMPid + 1;
@@ -239,93 +239,28 @@ void Optimizer::FullInertialBA(std::shared_ptr<Map> pMap, int its, const bool bF
     vPoint->setMarginalized(true);
     optimizer.addVertex(vPoint);
 
-    const std::map<KeyFrame*, std::tuple<int, int>> observations = pMP->GetObservations();
+    const std::map<std::weak_ptr<KeyFrame>, std::tuple<int, int>, std::owner_less<>> observations = pMP->GetObservations();
 
     bool bAllFixed = true;
 
     // Set edges
-    for (std::map<KeyFrame*, std::tuple<int, int>>::const_iterator
-             mit = observations.begin(),
-             mend = observations.end();
-         mit != mend; mit++) {
-      KeyFrame* pKFi = mit->first;
-
-      if (pKFi->mnId > maxKFid){
-        continue;
-      }
-
-      if (!pKFi->isBad()) {
-        const int leftIndex = std::get<0>(mit->second);
-        cv::KeyPoint kpUn;
-
-        if (leftIndex != -1 && pKFi->mvuRight[std::get<0>(mit->second)] < 0)  // Monocular observation
-        {
-          kpUn = pKFi->mvKeysUn[leftIndex];
-          Eigen::Matrix<double, 2, 1> obs;
-          obs << kpUn.pt.x, kpUn.pt.y;
-
-          EdgeMono* e = new EdgeMono(0);
-
-          g2o::OptimizableGraph::Vertex* VP =
-              dynamic_cast<g2o::OptimizableGraph::Vertex*>(
-                  optimizer.vertex(pKFi->mnId));
-          if (bAllFixed)
-            if (!VP->fixed()) bAllFixed = false;
-
-          e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(
-                              optimizer.vertex(id)));
-          e->setVertex(1, VP);
-          e->setMeasurement(obs);
-          const float invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
-
-          e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
-
-          g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
-          e->setRobustKernel(rk);
-          rk->setDelta(thHuberMono);
-
-          optimizer.addEdge(e);
-        } else if (leftIndex != -1 && pKFi->mvuRight[leftIndex] >= 0)  // stereo observation
-        {
-          kpUn = pKFi->mvKeysUn[leftIndex];
-          const float kp_ur = pKFi->mvuRight[leftIndex];
-          Eigen::Matrix<double, 3, 1> obs;
-          obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
-
-          EdgeStereo* e = new EdgeStereo(0);
-
-          g2o::OptimizableGraph::Vertex* VP =
-              dynamic_cast<g2o::OptimizableGraph::Vertex*>(
-                  optimizer.vertex(pKFi->mnId));
-          if (bAllFixed)
-            if (!VP->fixed()) bAllFixed = false;
-
-          e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(
-                              optimizer.vertex(id)));
-          e->setVertex(1, VP);
-          e->setMeasurement(obs);
-          const float invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
-
-          e->setInformation(Eigen::Matrix3d::Identity() * invSigma2);
-
-          g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
-          e->setRobustKernel(rk);
-          rk->setDelta(thHuberStereo);
-
-          optimizer.addEdge(e);
+    for (std::map<std::weak_ptr<KeyFrame>, std::tuple<int, int>, std::owner_less<>>::const_iterator mit = observations.begin(), mend = observations.end(); mit != mend; mit++) {
+      if(std::shared_ptr<KeyFrame> pKFi = (mit->first).lock()) {
+        if (pKFi->mnId > maxKFid){
+          continue;
         }
 
-        if (pKFi->mpCamera2) {  // Monocular right observation
-          int rightIndex = std::get<1>(mit->second);
+        if (!pKFi->isBad()) {
+          const int leftIndex = std::get<0>(mit->second);
+          cv::KeyPoint kpUn;
 
-          if (rightIndex != -1 && rightIndex < static_cast<int>(pKFi->mvKeysRight.size())) {
-            rightIndex -= pKFi->NLeft;
-
+          if (leftIndex != -1 && pKFi->mvuRight[std::get<0>(mit->second)] < 0)  // Monocular observation
+          {
+            kpUn = pKFi->mvKeysUn[leftIndex];
             Eigen::Matrix<double, 2, 1> obs;
-            kpUn = pKFi->mvKeysRight[rightIndex];
             obs << kpUn.pt.x, kpUn.pt.y;
 
-            EdgeMono* e = new EdgeMono(1);
+            EdgeMono* e = new EdgeMono(0);
 
             g2o::OptimizableGraph::Vertex* VP =
                 dynamic_cast<g2o::OptimizableGraph::Vertex*>(
@@ -338,6 +273,7 @@ void Optimizer::FullInertialBA(std::shared_ptr<Map> pMap, int its, const bool bF
             e->setVertex(1, VP);
             e->setMeasurement(obs);
             const float invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
+
             e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
 
             g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
@@ -345,6 +281,67 @@ void Optimizer::FullInertialBA(std::shared_ptr<Map> pMap, int its, const bool bF
             rk->setDelta(thHuberMono);
 
             optimizer.addEdge(e);
+          } else if (leftIndex != -1 && pKFi->mvuRight[leftIndex] >= 0)  // stereo observation
+          {
+            kpUn = pKFi->mvKeysUn[leftIndex];
+            const float kp_ur = pKFi->mvuRight[leftIndex];
+            Eigen::Matrix<double, 3, 1> obs;
+            obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
+
+            EdgeStereo* e = new EdgeStereo(0);
+
+            g2o::OptimizableGraph::Vertex* VP =
+                dynamic_cast<g2o::OptimizableGraph::Vertex*>(
+                    optimizer.vertex(pKFi->mnId));
+            if (bAllFixed)
+              if (!VP->fixed()) bAllFixed = false;
+
+            e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(
+                                optimizer.vertex(id)));
+            e->setVertex(1, VP);
+            e->setMeasurement(obs);
+            const float invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
+
+            e->setInformation(Eigen::Matrix3d::Identity() * invSigma2);
+
+            g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+            e->setRobustKernel(rk);
+            rk->setDelta(thHuberStereo);
+
+            optimizer.addEdge(e);
+          }
+
+          if (pKFi->mpCamera2) {  // Monocular right observation
+            int rightIndex = std::get<1>(mit->second);
+
+            if (rightIndex != -1 && rightIndex < static_cast<int>(pKFi->mvKeysRight.size())) {
+              rightIndex -= pKFi->NLeft;
+
+              Eigen::Matrix<double, 2, 1> obs;
+              kpUn = pKFi->mvKeysRight[rightIndex];
+              obs << kpUn.pt.x, kpUn.pt.y;
+
+              EdgeMono* e = new EdgeMono(1);
+
+              g2o::OptimizableGraph::Vertex* VP =
+                  dynamic_cast<g2o::OptimizableGraph::Vertex*>(
+                      optimizer.vertex(pKFi->mnId));
+              if (bAllFixed)
+                if (!VP->fixed()) bAllFixed = false;
+
+              e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(
+                                  optimizer.vertex(id)));
+              e->setVertex(1, VP);
+              e->setMeasurement(obs);
+              const float invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
+              e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
+
+              g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+              e->setRobustKernel(rk);
+              rk->setDelta(thHuberMono);
+
+              optimizer.addEdge(e);
+            }
           }
         }
       }
@@ -364,7 +361,7 @@ void Optimizer::FullInertialBA(std::shared_ptr<Map> pMap, int its, const bool bF
   // Recover optimized data
   // Keyframes
   for (size_t i = 0; i < vpKFs.size(); i++) {
-    KeyFrame* pKFi = vpKFs[i];
+    std::shared_ptr<KeyFrame> pKFi = vpKFs[i];
     if (pKFi->mnId > maxKFid) continue;
     VertexPose* VP = static_cast<VertexPose*>(optimizer.vertex(pKFi->mnId));
     if (nLoopId == 0) {
@@ -412,7 +409,7 @@ void Optimizer::FullInertialBA(std::shared_ptr<Map> pMap, int its, const bool bF
   for (size_t i = 0; i < vpMPs.size(); i++) {
     if (vbNotIncludedMP[i]) continue;
 
-    MapPoint* pMP = vpMPs[i];
+    std::shared_ptr<MapPoint> pMP = vpMPs[i];
     g2o::VertexSBAPointXYZ* vPoint = static_cast<g2o::VertexSBAPointXYZ*>(
         optimizer.vertex(pMP->mnId + iniMPid + 1));
 

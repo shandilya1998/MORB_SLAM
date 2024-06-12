@@ -70,8 +70,8 @@ class Tracking {
   // to localize the camera.
   void InformOnlyTracking(const bool& flag);
 
-  void UpdateFrameIMU(const float s, const IMU::Bias& b, KeyFrame* pCurrentKeyFrame);
-  KeyFrame* GetLastKeyFrame() { return mpLastKeyFrame; }
+  void UpdateFrameIMU(const float s, const IMU::Bias& b, std::shared_ptr<KeyFrame> pCurrentKeyFrame);
+  std::shared_ptr<KeyFrame> GetLastKeyFrame() { return mpLastKeyFrame; }
 
   void CreateMapInAtlas();
   // std::mutex mMutexTracks;
@@ -125,9 +125,10 @@ class Tracking {
   // execution. Basically we store the reference keyframe for each frame and its
   // relative transformation
 protected:
-  std::list<Sophus::SE3f> mlRelativeFramePoses;
-  std::list<KeyFrame*> mlpReferences;
-  std::list<bool> mlbLost;
+  // std::list<Sophus::SE3f> mlRelativeFramePoses;
+  // std::list<std::shared_ptr<KeyFrame>> mlpReferences;
+  // std::list<bool> mlbLost;
+  Sophus::SE3f mRelativeFramePose;
 
   bool mFastInit;
   bool mStationaryInit;
@@ -208,7 +209,7 @@ public:
   bool mbMapUpdated;
 
   // Imu preintegration from last frame
-  IMU::Preintegrated* mpImuPreintegratedFromLastKF;
+  std::shared_ptr<IMU::Preintegrated> mpImuPreintegratedFromLastKF;
 
   // Queue of IMU measurements between frames
   std::list<IMU::Point> mlQueueImuData;
@@ -247,9 +248,9 @@ public:
   bool mbReadyToInitialize;
 
   // Local Map
-  KeyFrame* mpReferenceKF;
-  std::vector<KeyFrame*> mvpLocalKeyFrames;
-  std::vector<MapPoint*> mvpLocalMapPoints;
+  std::shared_ptr<KeyFrame> mpReferenceKF;
+  std::vector<std::shared_ptr<KeyFrame>> mvpLocalKeyFrames;
+  std::vector<std::shared_ptr<MapPoint>> mvpLocalMapPoints;
 
   // Atlas
   Atlas_ptr mpAtlas;
@@ -284,7 +285,7 @@ public:
   int mnMatchesInliers;
 
   // Last Frame, KeyFrame and Relocalisation Info
-  KeyFrame* mpLastKeyFrame;
+  std::shared_ptr<KeyFrame> mpLastKeyFrame;
   unsigned int mnLastKeyFrameId;
   unsigned int mnLastRelocFrameId;
   double mTimeStampLost;
@@ -299,7 +300,7 @@ public:
   bool mbHasPrevDeltaFramePose{false};
   Sophus::SE3f mPrevDeltaFramePose;
 
-  std::list<MapPoint*> mlpTemporalPoints;
+  std::list<std::shared_ptr<MapPoint>> mlpTemporalPoints;
 
   std::shared_ptr<const GeometricCamera> mpCamera;
   std::shared_ptr<const GeometricCamera> mpCamera2;

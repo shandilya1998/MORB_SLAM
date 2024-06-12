@@ -33,7 +33,8 @@
 #include "MORB_SLAM/Exceptions.hpp"
 
 namespace MORB_SLAM {
-void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr<Map> pMap, bool bLarge, bool bRecInit) {
+
+void Optimizer::LocalInertialBA(std::shared_ptr<KeyFrame> pKF, bool* pbStopFlag, std::shared_ptr<Map> pMap, bool bLarge, bool bRecInit) {
   std::shared_ptr<Map> pCurrentMap = pKF->GetMap();
 
   // bLarge is true if pKF has 100 MapPoints
@@ -44,7 +45,7 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
   const unsigned long maxKFid = pKF->mnId;
 
   // the Optimizable KeyFrames vector stores the most recent [Nd] KFs
-  std::vector<KeyFrame*> vpOptimizableKFs;
+  std::vector<std::shared_ptr<KeyFrame>> vpOptimizableKFs;
   vpOptimizableKFs.reserve(Nd);
   vpOptimizableKFs.push_back(pKF);
 
@@ -63,11 +64,11 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
   int N = vpOptimizableKFs.size();
 
   // the Local MapPoints list stores every MapPoint viewable from one of the Optimizable KeyFrames
-  std::list<MapPoint*> lLocalMapPoints;
+  std::list<std::shared_ptr<MapPoint>> lLocalMapPoints;
   for (int i = 0; i < N; i++) {
-    std::vector<MapPoint*> vpMPs = vpOptimizableKFs[i]->GetMapPointMatches();
-    for (std::vector<MapPoint*>::iterator vit = vpMPs.begin(), vend = vpMPs.end(); vit != vend; vit++) {
-      MapPoint* pMP = *vit;
+    std::vector<std::shared_ptr<MapPoint>> vpMPs = vpOptimizableKFs[i]->GetMapPointMatches();
+    for (std::vector<std::shared_ptr<MapPoint>>::iterator vit = vpMPs.begin(), vend = vpMPs.end(); vit != vend; vit++) {
+      std::shared_ptr<MapPoint> pMP = *vit;
       // check if the MP exists, is not already in the list, and if more than 1 KF is observing it (note: stereo observations count for 2)
       if (pMP && !pMP->isBad() && pMP->mnBALocalForKF != pKF->mnId && pMP->Observations() >= 4) {
         lLocalMapPoints.push_back(pMP);
@@ -78,7 +79,7 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
 
 
   // the Fixed KeyFrames list stores every KF that observes at least 3 of the MPs in lLocalMapPoints
-  std::list<KeyFrame*> lFixedKeyFrames;
+  std::list<std::shared_ptr<KeyFrame>> lFixedKeyFrames;
 
   // add the KF before the oldest Optimizable KeyFrame to the Fixed KeyFrames list
   if (vpOptimizableKFs.back()->mPrevKF) {
@@ -102,16 +103,16 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
     // for (int i = 0, iend = vpNeighsKFs.size(); i < iend; i++) {
     //   if (lpOptVisKFs.size() >= maxCovKF) break;
 
-    //   KeyFrame* pKFi = vpNeighsKFs[i];
+    //   std::shared_ptr<KeyFrame> pKFi = vpNeighsKFs[i];
     //   if (pKFi->mnBALocalForKF == pKF->mnId || pKFi->mnBAFixedForKF == pKF->mnId) continue;
 
     //   pKFi->mnBALocalForKF = pKF->mnId;
     //   if (!pKFi->isBad() && pKFi->GetMap() == pCurrentMap) {
     //     lpOptVisKFs.push_back(pKFi);
 
-    //     std::vector<MapPoint*> vpMPs = pKFi->GetMapPointMatches();
-    //     for (std::vector<MapPoint*>::iterator vit = vpMPs.begin(), vend = vpMPs.end(); vit != vend; vit++) {
-    //       MapPoint* pMP = *vit;
+    //     std::vector<std::shared_ptr<MapPoint>> vpMPs = pKFi->GetMapPointMatches();
+    //     for (std::vector<std::shared_ptr<MapPoint>>::iterator vit = vpMPs.begin(), vend = vpMPs.end(); vit != vend; vit++) {
+    //       std::shared_ptr<MapPoint> pMP = *vit;
     //       if (pMP && !pMP->isBad() && pMP->mnBALocalForKF != pKF->mnId) {
     //         lLocalMapPoints.push_back(pMP);
     //         pMP->mnBALocalForKF = pKF->mnId;
@@ -126,10 +127,10 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
 
   {
     // OLD STUFF
-    // for (std::list<MapPoint*>::iterator lit = lLocalMapPoints.begin(), lend = lLocalMapPoints.end(); lit != lend; lit++) {
-    //   std::map<KeyFrame*, std::tuple<int, int>> observations = (*lit)->GetObservations();
-    //   for (std::map<KeyFrame*, std::tuple<int, int>>::iterator mit = observations.begin(), mend = observations.end(); mit != mend; mit++) {
-    //     KeyFrame* pKFi = mit->first;
+    // for (std::list<std::shared_ptr<MapPoint>>::iterator lit = lLocalMapPoints.begin(), lend = lLocalMapPoints.end(); lit != lend; lit++) {
+    //   std::map<std::shared_ptr<KeyFrame>, std::tuple<int, int>> observations = (*lit)->GetObservations();
+    //   for (std::map<std::shared_ptr<KeyFrame>, std::tuple<int, int>>::iterator mit = observations.begin(), mend = observations.end(); mit != mend; mit++) {
+    //     std::shared_ptr<KeyFrame> pKFi = mit->first;
 
     //     if (pKFi->mnBALocalForKF != pKF->mnId && pKFi->mnBAFixedForKF != pKF->mnId) {
     //       pKFi->mnBAFixedForKF = pKF->mnId;
@@ -151,64 +152,64 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
   _________________________________________________________________________________________________________________________*/
 
   // counter that keeps track of how many Local MapPoints each Optimizable KeyFrame can see (excluding the MPs that were added to the list)
-  std::map<KeyFrame*, int> optimizableKFsCounter;
+  std::map<std::shared_ptr<KeyFrame>, int> optimizableKFsCounter;
 
   // map that keeps track of which Local MapPoints each Fixed KeyFrame can see
-  std::map<KeyFrame*, std::pair<MapPoint*, MapPoint*>> fixedKFsVisibleMPs;
+  std::map<std::shared_ptr<KeyFrame>, std::pair<std::shared_ptr<MapPoint>, std::shared_ptr<MapPoint>>> fixedKFsVisibleMPs;
 
   // initialize the counter
   for (int i = 0; i < N-1; i++) {
-    KeyFrame* pKFi = vpOptimizableKFs[i];
+    std::shared_ptr<KeyFrame> pKFi = vpOptimizableKFs[i];
     optimizableKFsCounter[pKFi] = 0;
   }
 
 
   // iterate through all Local MapPoints
-  for (std::list<MapPoint*>::iterator lit = lLocalMapPoints.begin(), lend = lLocalMapPoints.end(); lit != lend; lit++) {
+  for (std::list<std::shared_ptr<MapPoint>>::iterator lit = lLocalMapPoints.begin(), lend = lLocalMapPoints.end(); lit != lend; lit++) {
     // get a list of each KF that observes this loop iteration's MP
-    std::map<KeyFrame*, std::tuple<int, int>> observations = (*lit)->GetObservations();
+    std::map<std::weak_ptr<KeyFrame>, std::tuple<int, int>, std::owner_less<>> observations = (*lit)->GetObservations();
     // iterate through each of these KFs
-    for (std::map<KeyFrame*, std::tuple<int, int>>::iterator mit = observations.begin(), mend = observations.end(); mit != mend; mit++) {
-      KeyFrame* pKFi = mit->first;
+    for (std::map<std::weak_ptr<KeyFrame>, std::tuple<int, int>, std::owner_less<>>::iterator mit = observations.begin(), mend = observations.end(); mit != mend; mit++) {
+      if(std::shared_ptr<KeyFrame> pKFi = (mit->first).lock()) {
+        // this flag is true if KFi has been confirmed to observe 3 or more Local MPs 
+        if (pKFi->mbVerifyLocalInertialBA) continue;
 
-      // this flag is true if KFi has been confirmed to observe 3 or more Local MPs 
-      if (pKFi->mbVerifyLocalInertialBA) continue;
+        // CASE 1: it's the first time checking a non-optimizable KF, so we add it to the Fixed KeyFrames list
+        //          don't add new KFs if there's already [maxFixKF] KeyFrames
+        if (lFixedKeyFrames.size() < maxFixKF && pKFi->mnBALocalForKF != pKF->mnId && pKFi->mnBAFixedForKF != pKF->mnId) {
+          pKFi->mnBAFixedForKF = pKF->mnId;
+          if (!pKFi->isBad()) {
+            // keep track of the local MP that KFi observed
+            fixedKFsVisibleMPs[pKFi] = std::pair<std::shared_ptr<MapPoint>, std::shared_ptr<MapPoint>>((*lit), nullptr);
+          } else {
+            pKFi->mbVerifyLocalInertialBA = true;
+          }
 
-      // CASE 1: it's the first time checking a non-optimizable KF, so we add it to the Fixed KeyFrames list
-      //          don't add new KFs if there's already [maxFixKF] KeyFrames
-      if (lFixedKeyFrames.size() < maxFixKF && pKFi->mnBALocalForKF != pKF->mnId && pKFi->mnBAFixedForKF != pKF->mnId) {
-        pKFi->mnBAFixedForKF = pKF->mnId;
-        if (!pKFi->isBad()) {
-          // keep track of the local MP that KFi observed
-          fixedKFsVisibleMPs[pKFi] = std::pair<MapPoint*, MapPoint*>((*lit), nullptr);
-        } else {
-          pKFi->mbVerifyLocalInertialBA = true;
-        }
+        // CASE 2: KFi is in the Optimizable KeyFrames vector
+        } else if(pKFi->mnBALocalForKF == pKF->mnId) {
+          // if this is the 3rd MP that KFi has observed, KFi is a good KeyFrame
+          if(optimizableKFsCounter[pKFi] >= 2) {
+            pKFi->mbVerifyLocalInertialBA = true;
+            // remove KFi from the counter, since it's already verified
+            optimizableKFsCounter.erase(pKFi);
+          } else {
+            optimizableKFsCounter[pKFi]++;
+          }
 
-      // CASE 2: KFi is in the Optimizable KeyFrames vector
-      } else if(pKFi->mnBALocalForKF == pKF->mnId) {
-        // if this is the 3rd MP that KFi has observed, KFi is a good KeyFrame
-        if(optimizableKFsCounter[pKFi] >= 2) {
-          pKFi->mbVerifyLocalInertialBA = true;
-          // remove KFi from the counter, since it's already verified
-          optimizableKFsCounter.erase(pKFi);
-        } else {
-          optimizableKFsCounter[pKFi]++;
-        }
+        // CASE 3: KFi is already in the Fixed KeyFrames list
+        } else if(pKFi->mnBAFixedForKF == pKF->mnId) {
+          // if this is the 3rd MP that KFi has observed, KFi is a good KeyFrame
+          if(fixedKFsVisibleMPs[pKFi].second) {
+            pKFi->mbVerifyLocalInertialBA = true;
+            lFixedKeyFrames.push_back(pKFi);
+            // remove KFi from the counter, since it's already verified
+            fixedKFsVisibleMPs.erase(pKFi);
 
-      // CASE 3: KFi is already in the Fixed KeyFrames list
-      } else if(pKFi->mnBAFixedForKF == pKF->mnId) {
-        // if this is the 3rd MP that KFi has observed, KFi is a good KeyFrame
-        if(fixedKFsVisibleMPs[pKFi].second) {
-          pKFi->mbVerifyLocalInertialBA = true;
-          lFixedKeyFrames.push_back(pKFi);
-          // remove KFi from the counter, since it's already verified
-          fixedKFsVisibleMPs.erase(pKFi);
-
-        // we get here if KFi has viewed exactly one Local MP, which is stored in the first element of the fixedKFsVisibleMPs[pKFi] pair
-        } else {
-          // save the current observation MP to the second element of the pair
-          fixedKFsVisibleMPs[pKFi].second = (*lit);
+          // we get here if KFi has viewed exactly one Local MP, which is stored in the first element of the fixedKFsVisibleMPs[pKFi] pair
+          } else {
+            // save the current observation MP to the second element of the pair
+            fixedKFsVisibleMPs[pKFi].second = (*lit);
+          }
         }
       }
     }
@@ -219,7 +220,7 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
   for (int i = 0; i < N; i++) {
     vpOptimizableKFs[i]->mbVerifyLocalInertialBA = false;
   }
-  for (std::list<KeyFrame*>::iterator lit = lFixedKeyFrames.begin(), lend = lFixedKeyFrames.end(); lit != lend; lit++) {
+  for (std::list<std::shared_ptr<KeyFrame>>::iterator lit = lFixedKeyFrames.begin(), lend = lFixedKeyFrames.end(); lit != lend; lit++) {
     (*lit)->mbVerifyLocalInertialBA = false;
   }
   for (auto mit = fixedKFsVisibleMPs.begin(); mit != fixedKFsVisibleMPs.end(); mit++) {
@@ -230,7 +231,7 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
 
   // Delete bad optimizable KFs
   for (auto mit = optimizableKFsCounter.begin(); mit != optimizableKFsCounter.end(); mit++) {
-    KeyFrame *pKFi = mit->first;
+    std::shared_ptr<KeyFrame>pKFi = mit->first;
 
     // if the most recent KF is marked for deletion, set a flag and do not optimize
     if(pKFi->mnId == pKF->mnId) {
@@ -276,10 +277,10 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
 
   // Delete bad MPs, remove their KFs from the fixedKFs list
   for (auto mit = fixedKFsVisibleMPs.begin(); mit != fixedKFsVisibleMPs.end(); mit++) {
-    KeyFrame *pKFi = mit->first;
+    std::shared_ptr<KeyFrame>pKFi = mit->first;
 
-    MapPoint *pMP1 = mit->second.first;
-    MapPoint *pMP2 = mit->second.second;
+    std::shared_ptr<MapPoint>pMP1 = mit->second.first;
+    std::shared_ptr<MapPoint>pMP2 = mit->second.second;
 
     if(pMP1) {
       if(!pMP1->isBad()) pMP1->SetBadFlag();
@@ -323,7 +324,7 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
 
   // Set Local temporal KeyFrame vertices
   for (int i = 0; i < N; i++) {
-    KeyFrame* pKFi = vpOptimizableKFs[i];
+    std::shared_ptr<KeyFrame> pKFi = vpOptimizableKFs[i];
 
     VertexPose* VP = new VertexPose(pKFi);
     VP->setId(pKFi->mnId);
@@ -349,8 +350,8 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
   {
     // UNUSED
     // // Set Local visual KeyFrame vertices
-    // for (std::list<KeyFrame*>::iterator it = lpOptVisKFs.begin(), itEnd = lpOptVisKFs.end(); it != itEnd; it++) {
-    //   KeyFrame* pKFi = *it;
+    // for (std::list<std::shared_ptr<KeyFrame>>::iterator it = lpOptVisKFs.begin(), itEnd = lpOptVisKFs.end(); it != itEnd; it++) {
+    //   std::shared_ptr<KeyFrame> pKFi = *it;
     //   VertexPose* VP = new VertexPose(pKFi);
     //   VP->setId(pKFi->mnId);
     //   VP->setFixed(false);
@@ -359,8 +360,8 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
   }
 
   // Set Fixed KeyFrame vertices
-  for (std::list<KeyFrame*>::iterator lit = lFixedKeyFrames.begin(), lend = lFixedKeyFrames.end(); lit != lend; lit++) {
-    KeyFrame* pKFi = *lit;
+  for (std::list<std::shared_ptr<KeyFrame>>::iterator lit = lFixedKeyFrames.begin(), lend = lFixedKeyFrames.end(); lit != lend; lit++) {
+    std::shared_ptr<KeyFrame> pKFi = *lit;
     VertexPose* VP = new VertexPose(pKFi);
     VP->setId(pKFi->mnId);
     VP->setFixed(true);
@@ -389,7 +390,7 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
   std::vector<EdgeAccRW*> vear(N, (EdgeAccRW*)nullptr);
 
   for (int i = 0; i < N; i++) {
-    KeyFrame* pKFi = vpOptimizableKFs[i];
+    std::shared_ptr<KeyFrame> pKFi = vpOptimizableKFs[i];
 
     if (!pKFi->mPrevKF) {
       // std::cout << "NOT INERTIAL LINK TO PREVIOUS FRAME!!!!" << std::endl;
@@ -459,20 +460,20 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
   std::vector<EdgeMono*> vpEdgesMono;
   // vpEdgesMono.reserve(nExpectedSize);
 
-  std::vector<KeyFrame*> vpEdgeKFMono;
+  std::vector<std::shared_ptr<KeyFrame>> vpEdgeKFMono;
   // vpEdgeKFMono.reserve(nExpectedSize);
 
-  std::vector<MapPoint*> vpMapPointEdgeMono;
+  std::vector<std::shared_ptr<MapPoint>> vpMapPointEdgeMono;
   // vpMapPointEdgeMono.reserve(nExpectedSize);
 
   // Stereo
   std::vector<EdgeStereo*> vpEdgesStereo;
   vpEdgesStereo.reserve(nExpectedSize);
 
-  std::vector<KeyFrame*> vpEdgeKFStereo;
+  std::vector<std::shared_ptr<KeyFrame>> vpEdgeKFStereo;
   vpEdgeKFStereo.reserve(nExpectedSize);
 
-  std::vector<MapPoint*> vpMapPointEdgeStereo;
+  std::vector<std::shared_ptr<MapPoint>> vpMapPointEdgeStereo;
   vpMapPointEdgeStereo.reserve(nExpectedSize);
 
   const float thHuberMono = sqrt(5.991);
@@ -483,19 +484,19 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
   const unsigned long iniMPid = 5*maxKFid;
 
   {
-    // std::map<int, std::pair<int, KeyFrame*>> mVisEdges;
+    // std::map<int, std::pair<int, std::shared_ptr<KeyFrame>>> mVisEdges;
     // for (int i = 0; i < N; i++) {
-    //   KeyFrame* pKFi = vpOptimizableKFs[i];
-    //   mVisEdges[pKFi->mnId] = std::pair<int, KeyFrame*>(0, pKFi);
+    //   std::shared_ptr<KeyFrame> pKFi = vpOptimizableKFs[i];
+    //   mVisEdges[pKFi->mnId] = std::pair<int, std::shared_ptr<KeyFrame>>(0, pKFi);
     // }
-    // for (std::list<KeyFrame*>::iterator lit = lFixedKeyFrames.begin(), lend = lFixedKeyFrames.end(); lit != lend; lit++) {
-    //   mVisEdges[(*lit)->mnId] = std::pair<int, KeyFrame*>(0, *lit);
+    // for (std::list<std::shared_ptr<KeyFrame>>::iterator lit = lFixedKeyFrames.begin(), lend = lFixedKeyFrames.end(); lit != lend; lit++) {
+    //   mVisEdges[(*lit)->mnId] = std::pair<int, std::shared_ptr<KeyFrame>>(0, *lit);
     // }
   }
 
   // set Local MapPoint vertices, and their edges to the Optimizable+Fixed KFs that observe them
-  for (std::list<MapPoint*>::iterator lit = lLocalMapPoints.begin(), lend = lLocalMapPoints.end(); lit != lend; lit++) {
-    MapPoint* pMP = *lit;
+  for (std::list<std::shared_ptr<MapPoint>>::iterator lit = lLocalMapPoints.begin(), lend = lLocalMapPoints.end(); lit != lend; lit++) {
+    std::shared_ptr<MapPoint> pMP = *lit;
     g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();
     vPoint->setEstimate(pMP->GetWorldPos().cast<double>());
 
@@ -503,98 +504,34 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
     vPoint->setId(id);
     vPoint->setMarginalized(true);
     optimizer.addVertex(vPoint);
-    const std::map<KeyFrame*, std::tuple<int, int>> observations = pMP->GetObservations();
+    const std::map<std::weak_ptr<KeyFrame>, std::tuple<int, int>, std::owner_less<>> observations = pMP->GetObservations();
 
     // Create visual constraints
-    for (std::map<KeyFrame*, std::tuple<int, int>>::const_iterator mit = observations.begin(), mend = observations.end(); mit != mend; mit++) {
-      KeyFrame* pKFi = mit->first;
+    for (std::map<std::weak_ptr<KeyFrame>, std::tuple<int, int>, std::owner_less<>>::const_iterator mit = observations.begin(), mend = observations.end(); mit != mend; mit++) {
+      if(std::shared_ptr<KeyFrame> pKFi = (mit->first).lock()) {
 
-      if (pKFi->mnBALocalForKF != pKF->mnId && pKFi->mnBAFixedForKF != pKF->mnId) continue;
+        if (pKFi->mnBALocalForKF != pKF->mnId && pKFi->mnBAFixedForKF != pKF->mnId) continue;
 
-      if (!pKFi->isBad() && pKFi->GetMap() == pCurrentMap) {
-        const int leftIndex = std::get<0>(mit->second);
+        if (!pKFi->isBad() && pKFi->GetMap() == pCurrentMap) {
+          const int leftIndex = std::get<0>(mit->second);
 
-        cv::KeyPoint kpUn;
+          cv::KeyPoint kpUn;
 
-        // Monocular left observation
-        if(leftIndex != -1 && pKFi->mvuRight[leftIndex] < 0) {
-          // mVisEdges[pKFi->mnId].first++;
-
-          kpUn = pKFi->mvKeysUn[leftIndex];
-          Eigen::Matrix<double, 2, 1> obs;
-          obs << kpUn.pt.x, kpUn.pt.y;
-
-          EdgeMono* e = new EdgeMono(0);
-
-          e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
-          e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId)));
-          e->setMeasurement(obs);
-
-          // Add here uncerteinty
-          const float unc2 = pKFi->mpCamera->uncertainty2(obs);
-
-          const float& invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave] / unc2;
-          e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
-
-          g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
-          e->setRobustKernel(rk);
-          rk->setDelta(thHuberMono);
-
-          optimizer.addEdge(e);
-          vpEdgesMono.push_back(e);
-          vpEdgeKFMono.push_back(pKFi);
-          vpMapPointEdgeMono.push_back(pMP);
-        }
-        // Stereo observation
-        else if (leftIndex != -1) {
-          kpUn = pKFi->mvKeysUn[leftIndex];
-          // mVisEdges[pKFi->mnId].first++;
-
-          const float kp_ur = pKFi->mvuRight[leftIndex];
-          Eigen::Matrix<double, 3, 1> obs;
-          obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
-
-          EdgeStereo* e = new EdgeStereo(0);
-
-          e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
-          e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId)));
-          e->setMeasurement(obs);
-
-          // Add here uncerteinty
-          const float unc2 = pKFi->mpCamera->uncertainty2(obs.head(2));
-
-          const float& invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave] / unc2;
-          e->setInformation(Eigen::Matrix3d::Identity() * invSigma2);
-
-          g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
-          e->setRobustKernel(rk);
-          rk->setDelta(thHuberStereo);
-
-          optimizer.addEdge(e);
-          vpEdgesStereo.push_back(e);
-          vpEdgeKFStereo.push_back(pKFi);
-          vpMapPointEdgeStereo.push_back(pMP);
-        }
-
-        // Monocular right observation
-        if (pKFi->mpCamera2) {
-          int rightIndex = std::get<1>(mit->second);
-
-          if (rightIndex != -1) {
-            rightIndex -= pKFi->NLeft;
+          // Monocular left observation
+          if(leftIndex != -1 && pKFi->mvuRight[leftIndex] < 0) {
             // mVisEdges[pKFi->mnId].first++;
 
+            kpUn = pKFi->mvKeysUn[leftIndex];
             Eigen::Matrix<double, 2, 1> obs;
-            cv::KeyPoint kp = pKFi->mvKeysRight[rightIndex];
-            obs << kp.pt.x, kp.pt.y;
+            obs << kpUn.pt.x, kpUn.pt.y;
 
-            EdgeMono* e = new EdgeMono(1);
+            EdgeMono* e = new EdgeMono(0);
 
             e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
             e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId)));
             e->setMeasurement(obs);
 
-            // Add here uncertainty
+            // Add here uncerteinty
             const float unc2 = pKFi->mpCamera->uncertainty2(obs);
 
             const float& invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave] / unc2;
@@ -609,6 +546,71 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
             vpEdgeKFMono.push_back(pKFi);
             vpMapPointEdgeMono.push_back(pMP);
           }
+          // Stereo observation
+          else if (leftIndex != -1) {
+            kpUn = pKFi->mvKeysUn[leftIndex];
+            // mVisEdges[pKFi->mnId].first++;
+
+            const float kp_ur = pKFi->mvuRight[leftIndex];
+            Eigen::Matrix<double, 3, 1> obs;
+            obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
+
+            EdgeStereo* e = new EdgeStereo(0);
+
+            e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
+            e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId)));
+            e->setMeasurement(obs);
+
+            // Add here uncerteinty
+            const float unc2 = pKFi->mpCamera->uncertainty2(obs.head(2));
+
+            const float& invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave] / unc2;
+            e->setInformation(Eigen::Matrix3d::Identity() * invSigma2);
+
+            g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+            e->setRobustKernel(rk);
+            rk->setDelta(thHuberStereo);
+
+            optimizer.addEdge(e);
+            vpEdgesStereo.push_back(e);
+            vpEdgeKFStereo.push_back(pKFi);
+            vpMapPointEdgeStereo.push_back(pMP);
+          }
+
+          // Monocular right observation
+          if (pKFi->mpCamera2) {
+            int rightIndex = std::get<1>(mit->second);
+
+            if (rightIndex != -1) {
+              rightIndex -= pKFi->NLeft;
+              // mVisEdges[pKFi->mnId].first++;
+
+              Eigen::Matrix<double, 2, 1> obs;
+              cv::KeyPoint kp = pKFi->mvKeysRight[rightIndex];
+              obs << kp.pt.x, kp.pt.y;
+
+              EdgeMono* e = new EdgeMono(1);
+
+              e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
+              e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId)));
+              e->setMeasurement(obs);
+
+              // Add here uncertainty
+              const float unc2 = pKFi->mpCamera->uncertainty2(obs);
+
+              const float& invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave] / unc2;
+              e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
+
+              g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+              e->setRobustKernel(rk);
+              rk->setDelta(thHuberMono);
+
+              optimizer.addEdge(e);
+              vpEdgesMono.push_back(e);
+              vpEdgeKFMono.push_back(pKFi);
+              vpMapPointEdgeMono.push_back(pMP);
+            }
+          }
         }
       }
     }
@@ -622,7 +624,7 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
 
     //   // If the KF has few visual matches, delete that KF and do not optimize
     //   if(mit->second.first < 3) {
-    //     KeyFrame *pKFi = mit->second.second;
+    //     std::shared_ptr<KeyFrame>pKFi = mit->second.second;
     //     if(!pKFi || (vpOptimizableKFs.back() && pKFi->mnId == vpOptimizableKFs.back()->mnId)) continue;
         
     //     if(pKFi->mnId != pKF->mnId) {
@@ -661,20 +663,20 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
   float err_end = optimizer.activeRobustChi2();
   if (pbStopFlag) optimizer.setForceStopFlag(pbStopFlag);
 
-  std::vector<std::pair<KeyFrame*, MapPoint*>> vToErase;
+  std::vector<std::pair<std::shared_ptr<KeyFrame>, std::shared_ptr<MapPoint>>> vToErase;
   vToErase.reserve(vpEdgesMono.size() + vpEdgesStereo.size());
 
   // Check inlier observations
   // Mono
   for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
     EdgeMono* e = vpEdgesMono[i];
-    MapPoint* pMP = vpMapPointEdgeMono[i];
+    std::shared_ptr<MapPoint> pMP = vpMapPointEdgeMono[i];
     bool bClose = pMP->mTrackDepth < 10.f;
 
     if (pMP->isBad()) continue;
 
     if ((e->chi2() > chi2Mono2 && !bClose) || (e->chi2() > 1.5f * chi2Mono2 && bClose) || !e->isDepthPositive()) {
-      KeyFrame* pKFi = vpEdgeKFMono[i];
+      std::shared_ptr<KeyFrame> pKFi = vpEdgeKFMono[i];
       vToErase.push_back(std::make_pair(pKFi, pMP));
     }
   }
@@ -682,12 +684,12 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
   // Stereo
   for (size_t i = 0, iend = vpEdgesStereo.size(); i < iend; i++) {
     EdgeStereo* e = vpEdgesStereo[i];
-    MapPoint* pMP = vpMapPointEdgeStereo[i];
+    std::shared_ptr<MapPoint> pMP = vpMapPointEdgeStereo[i];
 
     if (pMP->isBad()) continue;
 
     if (e->chi2() > chi2Stereo2) {
-      KeyFrame* pKFi = vpEdgeKFStereo[i];
+      std::shared_ptr<KeyFrame> pKFi = vpEdgeKFStereo[i];
       vToErase.push_back(std::make_pair(pKFi, pMP));
     }
   }
@@ -705,21 +707,21 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
   // if the error on a KF-to-MP observation was too high, delete its connection between them
   if (!vToErase.empty()) {
     for (size_t i = 0; i < vToErase.size(); i++) {
-      KeyFrame* pKFi = vToErase[i].first;
-      MapPoint* pMPi = vToErase[i].second;
+      std::shared_ptr<KeyFrame> pKFi = vToErase[i].first;
+      std::shared_ptr<MapPoint> pMPi = vToErase[i].second;
       pKFi->EraseMapPointMatch(pMPi);
       pMPi->EraseObservation(pKFi);
     }
   }
 
   // REDUNDANT (we never perform LocalBundle)
-  // for (std::list<KeyFrame*>::iterator lit = lFixedKeyFrames.begin(), lend = lFixedKeyFrames.end(); lit != lend; lit++)
+  // for (std::list<std::shared_ptr<KeyFrame>>::iterator lit = lFixedKeyFrames.begin(), lend = lFixedKeyFrames.end(); lit != lend; lit++)
   //   (*lit)->mnBAFixedForKF = 0;
 
   // Recover optimized data
   // Optimizable Keyframes
   for (int i = 0; i < N; i++) {
-    KeyFrame* pKFi = vpOptimizableKFs[i];
+    std::shared_ptr<KeyFrame> pKFi = vpOptimizableKFs[i];
 
     VertexPose* VP = static_cast<VertexPose*>(optimizer.vertex(pKFi->mnId));
     Sophus::SE3f Tcw(VP->estimate().Rcw[0].cast<float>(), VP->estimate().tcw[0].cast<float>());
@@ -740,8 +742,8 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
   {
     // UNUSED
     // // Local visual KeyFrame
-    // for (std::list<KeyFrame*>::iterator it = lpOptVisKFs.begin(), itEnd = lpOptVisKFs.end(); it != itEnd; it++) {
-    //   KeyFrame* pKFi = *it;
+    // for (std::list<std::shared_ptr<KeyFrame>>::iterator it = lpOptVisKFs.begin(), itEnd = lpOptVisKFs.end(); it != itEnd; it++) {
+    //   std::shared_ptr<KeyFrame> pKFi = *it;
     //   VertexPose* VP = static_cast<VertexPose*>(optimizer.vertex(pKFi->mnId));
     //   Sophus::SE3f Tcw(VP->estimate().Rcw[0].cast<float>(), VP->estimate().tcw[0].cast<float>());
     //   pKFi->SetPose(Tcw);
@@ -750,8 +752,8 @@ void Optimizer::LocalInertialBA(KeyFrame* pKF, bool* pbStopFlag, std::shared_ptr
   }
 
   // Local MapPoints
-  for (std::list<MapPoint*>::iterator lit = lLocalMapPoints.begin(), lend = lLocalMapPoints.end(); lit != lend; lit++) {
-    MapPoint* pMP = *lit;
+  for (std::list<std::shared_ptr<MapPoint>>::iterator lit = lLocalMapPoints.begin(), lend = lLocalMapPoints.end(); lit != lend; lit++) {
+    std::shared_ptr<MapPoint> pMP = *lit;
     g2o::VertexSBAPointXYZ* vPoint = static_cast<g2o::VertexSBAPointXYZ*>(optimizer.vertex(pMP->mnId + iniMPid + 1));
     pMP->SetWorldPos(vPoint->estimate().cast<float>());
     pMP->UpdateNormalAndDepth();

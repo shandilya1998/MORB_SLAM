@@ -35,10 +35,10 @@
 
 namespace MORB_SLAM {
 
-Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2,
-                       const std::vector<MapPoint *> &vpMatched12,
+Sim3Solver::Sim3Solver(std::shared_ptr<KeyFrame>pKF1, std::shared_ptr<KeyFrame>pKF2,
+                       const std::vector<std::shared_ptr<MapPoint>> &vpMatched12,
                        const bool bFixScale,
-                       std::vector<KeyFrame *> vpKeyFrameMatchedMP)
+                       std::vector<std::shared_ptr<KeyFrame>> vpKeyFrameMatchedMP)
     : mnIterations(0),
       mnBestInliers(0),
       mbFixScale(bFixScale),
@@ -47,7 +47,7 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2,
   bool bDifferentKFs = false;
   if (vpKeyFrameMatchedMP.empty()) {
     bDifferentKFs = true;
-    vpKeyFrameMatchedMP = std::vector<KeyFrame *>(vpMatched12.size(), pKF2);
+    vpKeyFrameMatchedMP = std::vector<std::shared_ptr<KeyFrame>>(vpMatched12.size(), pKF2);
     std::cout << "\033[22;34mEmpty Keyframe\n" << std::endl;
   } else {
     //std::cout << "\033[0:31mNot Empty\n" << std::endl;
@@ -56,7 +56,7 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2,
   mpKF1 = pKF1;
   mpKF2 = pKF2;
 
-  std::vector<MapPoint *> vpKeyFrameMP1 = pKF1->GetMapPointMatches();
+  std::vector<std::shared_ptr<MapPoint>> vpKeyFrameMP1 = pKF1->GetMapPointMatches();
 
   mN1 = vpMatched12.size();
 
@@ -76,11 +76,11 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2,
 
   size_t idx = 0;
 
-  KeyFrame *pKFm = pKF2;  // Default variable
+  std::shared_ptr<KeyFrame>pKFm = pKF2;  // Default variable
   for (int i1 = 0; i1 < mN1; i1++) {
     if (vpMatched12[i1]) {
-      MapPoint *pMP1 = vpKeyFrameMP1[i1];
-      MapPoint *pMP2 = vpMatched12[i1];
+      std::shared_ptr<MapPoint>pMP1 = vpKeyFrameMP1[i1];
+      std::shared_ptr<MapPoint>pMP2 = vpMatched12[i1];
 
       if (!pMP1) continue;
 

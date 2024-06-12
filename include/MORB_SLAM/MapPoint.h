@@ -42,8 +42,7 @@ class KeyFrame;
 class Map;
 class Frame;
 
-class MapPoint
-{
+class MapPoint : public std::enable_shared_from_this<MapPoint> {
 
     friend class boost::serialization::access;
     template<class Archive>
@@ -108,9 +107,10 @@ public:
     
     MapPoint();
 
-    MapPoint(const Eigen::Vector3f &Pos, KeyFrame* pRefKF, std::shared_ptr<Map> pMap);
-    MapPoint(const double invDepth, cv::Point2f uv_init, KeyFrame* pRefKF, KeyFrame* pHostKF, std::shared_ptr<Map> pMap);
+    MapPoint(const Eigen::Vector3f &Pos, std::shared_ptr<KeyFrame> pRefKF, std::shared_ptr<Map> pMap);
+    MapPoint(const double invDepth, cv::Point2f uv_init, std::shared_ptr<KeyFrame> pRefKF, std::shared_ptr<KeyFrame> pHostKF, std::shared_ptr<Map> pMap);
     MapPoint(const Eigen::Vector3f &Pos,  std::shared_ptr<Map> pMap, Frame* pFrame, const int &idxF);
+    ~MapPoint();
 
     void SetWorldPos(const Eigen::Vector3f &Pos);
     Eigen::Vector3f GetWorldPos();
@@ -118,22 +118,22 @@ public:
     Eigen::Vector3f GetNormal();
     void SetNormalVector(const Eigen::Vector3f& normal);
 
-    KeyFrame* GetReferenceKeyFrame();
+    std::weak_ptr<KeyFrame> GetReferenceKeyFrame();
 
-    std::map<KeyFrame*,std::tuple<int,int>> GetObservations();
+    std::map<std::weak_ptr<KeyFrame>, std::tuple<int,int>, std::owner_less<>> GetObservations();
     int Observations();
 
-    void AddObservation(KeyFrame* pKF,int idx);
-    void EraseObservation(KeyFrame* pKF);
+    void AddObservation(std::shared_ptr<KeyFrame> pKF,int idx);
+    void EraseObservation(std::shared_ptr<KeyFrame> pKF);
 
-    std::tuple<int,int> GetIndexInKeyFrame(KeyFrame* pKF);
-    bool IsInKeyFrame(KeyFrame* pKF);
+    std::tuple<int,int> GetIndexInKeyFrame(std::shared_ptr<KeyFrame> pKF);
+    bool IsInKeyFrame(std::shared_ptr<KeyFrame> pKF);
 
     void SetBadFlag();
     bool isBad();
 
-    void Replace(MapPoint* pMP);
-    MapPoint* GetReplaced();
+    void Replace(std::shared_ptr<MapPoint> pMP);
+    std::shared_ptr<MapPoint> GetReplaced();
 
     void IncreaseVisible(int n=1);
     void IncreaseFound(int n=1);
@@ -150,7 +150,7 @@ public:
 
     float GetMinDistanceInvariance();
     float GetMaxDistanceInvariance();
-    int PredictScale(const float &currentDist, KeyFrame*pKF);
+    int PredictScale(const float &currentDist, std::shared_ptr<KeyFrame>pKF);
     int PredictScale(const float &currentDist, Frame* pF);
 
     std::shared_ptr<Map> GetMap();
@@ -158,8 +158,8 @@ public:
 
     void PrintObservations();
 
-    void PreSave(std::set<KeyFrame*>& spKF,std::set<MapPoint*>& spMP);
-    void PostLoad(std::map<long unsigned int, KeyFrame*>& mpKFid, std::map<long unsigned int, MapPoint*>& mpMPid);
+    void PreSave(std::set<std::shared_ptr<KeyFrame>>& spKF,std::set<std::shared_ptr<MapPoint>>& spMP);
+    void PostLoad(std::map<long unsigned int, std::shared_ptr<KeyFrame>>& mpKFid, std::map<long unsigned int, std::shared_ptr<MapPoint>>& mpMPid);
 
 public:
     long unsigned int mnId;
@@ -202,11 +202,12 @@ public:
     double mInvDepth;
     double mInitU;
     double mInitV;
-    KeyFrame* mpHostKF;
 
     static std::mutex mGlobalMutex;
 
     unsigned int mnOriginMapId;
+
+    static long unsigned int nMPsInMemory;
 
 protected:
 
@@ -214,7 +215,7 @@ protected:
      Eigen::Vector3f mWorldPos;
 
      // Keyframes observing the point and associated index in keyframe
-     std::map<KeyFrame*,std::tuple<int,int> > mObservations;
+     std::map<std::weak_ptr<KeyFrame>, std::tuple<int,int>, std::owner_less<>> mObservations;
      // For save relation without pointer, this is necessary for save/load function
      std::map<long unsigned int, int> mBackupObservationsId1;
      std::map<long unsigned int, int> mBackupObservationsId2;
@@ -226,7 +227,7 @@ protected:
      cv::Mat mDescriptor;
 
      // Reference KeyFrame
-     KeyFrame* mpRefKF;
+     std::weak_ptr<KeyFrame> mpRefKF;
      long unsigned int mBackupRefKFId;
 
      // Tracking counters
@@ -235,7 +236,7 @@ protected:
 
      // Bad flag (we do not currently erase MapPoint from memory)
      bool mbBad;
-     MapPoint* mpReplaced;
+     std::shared_ptr<MapPoint> mpReplaced;
      // For save relation without pointer, this is necessary for save/load function
      long long int mBackupReplacedId;
 

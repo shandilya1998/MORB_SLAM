@@ -34,10 +34,10 @@
 namespace MORB_SLAM {
 
 void Optimizer::OptimizeEssentialGraph(
-    std::shared_ptr<Map> pMap, KeyFrame* pLoopKF, KeyFrame* pCurKF,
+    std::shared_ptr<Map> pMap, std::shared_ptr<KeyFrame> pLoopKF, std::shared_ptr<KeyFrame> pCurKF,
     const LoopClosing::KeyFrameAndPose& NonCorrectedSim3,
     const LoopClosing::KeyFrameAndPose& CorrectedSim3,
-    const std::map<KeyFrame*, std::set<KeyFrame*>>& LoopConnections,
+    const std::map<std::shared_ptr<KeyFrame>, std::set<std::shared_ptr<KeyFrame>>>& LoopConnections,
     const bool& bFixScale) {
   // Setup optimizer
   g2o::SparseOptimizer optimizer;
@@ -51,8 +51,8 @@ void Optimizer::OptimizeEssentialGraph(
   solver->setUserLambdaInit(1e-16);
   optimizer.setAlgorithm(solver);
 
-  const std::vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
-  const std::vector<MapPoint*> vpMPs = pMap->GetAllMapPoints();
+  const std::vector<std::shared_ptr<KeyFrame>> vpKFs = pMap->GetAllKeyFrames();
+  const std::vector<std::shared_ptr<MapPoint>> vpMPs = pMap->GetAllMapPoints();
 
   const unsigned int nMaxKFid = pMap->GetMaxKFid();
 
@@ -69,7 +69,7 @@ void Optimizer::OptimizeEssentialGraph(
 
   // Set KeyFrame vertices
   for (size_t i = 0, iend = vpKFs.size(); i < iend; i++) {
-    KeyFrame* pKF = vpKFs[i];
+    std::shared_ptr<KeyFrame> pKF = vpKFs[i];
     if (pKF->isBad()) continue;
     g2o::VertexSim3Expmap* VSim3 = new g2o::VertexSim3Expmap();
 
@@ -106,17 +106,17 @@ void Optimizer::OptimizeEssentialGraph(
 
   // Set Loop edges
   int count_loop = 0;
-  for (std::map<KeyFrame*, std::set<KeyFrame*>>::const_iterator
+  for (std::map<std::shared_ptr<KeyFrame>, std::set<std::shared_ptr<KeyFrame>>>::const_iterator
            mit = LoopConnections.begin(),
            mend = LoopConnections.end();
        mit != mend; mit++) {
-    KeyFrame* pKF = mit->first;
+    std::shared_ptr<KeyFrame> pKF = mit->first;
     const long unsigned int nIDi = pKF->mnId;
-    const std::set<KeyFrame*>& spConnections = mit->second;
+    const std::set<std::shared_ptr<KeyFrame>>& spConnections = mit->second;
     const g2o::Sim3 Siw = vScw[nIDi];
     const g2o::Sim3 Swi = Siw.inverse();
 
-    for (std::set<KeyFrame*>::const_iterator sit = spConnections.begin(),
+    for (std::set<std::shared_ptr<KeyFrame>>::const_iterator sit = spConnections.begin(),
                                         send = spConnections.end();
          sit != send; sit++) {
       const long unsigned int nIDj = (*sit)->mnId;
@@ -144,7 +144,7 @@ void Optimizer::OptimizeEssentialGraph(
 
   // Set normal edges
   for (size_t i = 0, iend = vpKFs.size(); i < iend; i++) {
-    KeyFrame* pKF = vpKFs[i];
+    std::shared_ptr<KeyFrame> pKF = vpKFs[i];
 
     const int nIDi = pKF->mnId;
 
@@ -158,7 +158,7 @@ void Optimizer::OptimizeEssentialGraph(
     else
       Swi = vScw[nIDi].inverse();
 
-    KeyFrame* pParentKF = pKF->GetParent();
+    std::shared_ptr<KeyFrame> pParentKF = pKF->GetParent();
 
     // Spanning tree edge
     if (pParentKF) {
@@ -187,11 +187,11 @@ void Optimizer::OptimizeEssentialGraph(
     }
 
     // Loop edges
-    const std::set<KeyFrame*> sLoopEdges = pKF->GetLoopEdges();
-    for (std::set<KeyFrame*>::const_iterator sit = sLoopEdges.begin(),
+    const std::set<std::shared_ptr<KeyFrame>> sLoopEdges = pKF->GetLoopEdges();
+    for (std::set<std::shared_ptr<KeyFrame>>::const_iterator sit = sLoopEdges.begin(),
                                         send = sLoopEdges.end();
          sit != send; sit++) {
-      KeyFrame* pLKF = *sit;
+      std::shared_ptr<KeyFrame> pLKF = *sit;
       if (pLKF->mnId < pKF->mnId) {
         g2o::Sim3 Slw;
 
@@ -216,11 +216,11 @@ void Optimizer::OptimizeEssentialGraph(
     }
 
     // Covisibility graph edges
-    const std::vector<KeyFrame*> vpConnectedKFs =
+    const std::vector<std::shared_ptr<KeyFrame>> vpConnectedKFs =
         pKF->GetCovisiblesByWeight(minFeat);
-    for (std::vector<KeyFrame*>::const_iterator vit = vpConnectedKFs.begin();
+    for (std::vector<std::shared_ptr<KeyFrame>>::const_iterator vit = vpConnectedKFs.begin();
          vit != vpConnectedKFs.end(); vit++) {
-      KeyFrame* pKFn = *vit;
+      std::shared_ptr<KeyFrame> pKFn = *vit;
       if (pKFn && pKFn != pParentKF &&
           !pKF->hasChild(pKFn) /*&& !sLoopEdges.count(pKFn)*/) {
         if (!pKFn->isBad() && pKFn->mnId < pKF->mnId) {
@@ -282,7 +282,7 @@ void Optimizer::OptimizeEssentialGraph(
 
   // SE3 Pose Recovering. Sim3:[sR t;0 1] -> SE3:[R t/s;0 1]
   for (size_t i = 0; i < vpKFs.size(); i++) {
-    KeyFrame* pKFi = vpKFs[i];
+    std::shared_ptr<KeyFrame> pKFi = vpKFs[i];
 
     const int nIDi = pKFi->mnId;
 
@@ -300,16 +300,17 @@ void Optimizer::OptimizeEssentialGraph(
   // Correct points. Transform to "non-optimized" reference keyframe pose and
   // transform back with optimized pose
   for (size_t i = 0, iend = vpMPs.size(); i < iend; i++) {
-    MapPoint* pMP = vpMPs[i];
+    std::shared_ptr<MapPoint> pMP = vpMPs[i];
 
     if (pMP->isBad()) continue;
 
     int nIDr;
     if (pMP->mnCorrectedByKF == pCurKF->mnId) {
       nIDr = pMP->mnCorrectedReference;
-    } else {
-      KeyFrame* pRefKF = pMP->GetReferenceKeyFrame();
+    } else if(std::shared_ptr<KeyFrame> pRefKF = (pMP->GetReferenceKeyFrame()).lock()) {
       nIDr = pRefKF->mnId;
+    } else {
+      continue;
     }
 
     g2o::Sim3 Srw = vScw[nIDr];
@@ -327,11 +328,11 @@ void Optimizer::OptimizeEssentialGraph(
   pMap->IncreaseChangeIndex();
 }
 
-void Optimizer::OptimizeEssentialGraph(KeyFrame* pCurKF,
-                                       std::vector<KeyFrame*>& vpFixedKFs,
-                                       std::vector<KeyFrame*>& vpFixedCorrectedKFs,
-                                       std::vector<KeyFrame*>& vpNonFixedKFs,
-                                       std::vector<MapPoint*>& vpNonCorrectedMPs) {
+void Optimizer::OptimizeEssentialGraph(std::shared_ptr<KeyFrame> pCurKF,
+                                       std::vector<std::shared_ptr<KeyFrame>>& vpFixedKFs,
+                                       std::vector<std::shared_ptr<KeyFrame>>& vpFixedCorrectedKFs,
+                                       std::vector<std::shared_ptr<KeyFrame>>& vpNonFixedKFs,
+                                       std::vector<std::shared_ptr<MapPoint>>& vpNonCorrectedMPs) {
   Verbose::PrintMess("Opt_Essential: There are " +
                          std::to_string(vpFixedKFs.size()) +
                          " KFs fixed in the merged map",
@@ -373,7 +374,7 @@ void Optimizer::OptimizeEssentialGraph(KeyFrame* pCurKF,
 
   const int minFeat = 100;
 
-  for (KeyFrame* pKFi : vpFixedKFs) {
+  for (std::shared_ptr<KeyFrame> pKFi : vpFixedKFs) {
     if (pKFi->isBad()) continue;
 
     g2o::VertexSim3Expmap* VSim3 = new g2o::VertexSim3Expmap();
@@ -403,7 +404,7 @@ void Optimizer::OptimizeEssentialGraph(KeyFrame* pCurKF,
                      Verbose::VERBOSITY_DEBUG);
 
   std::set<unsigned long> sIdKF;
-  for (KeyFrame* pKFi : vpFixedCorrectedKFs) {
+  for (std::shared_ptr<KeyFrame> pKFi : vpFixedCorrectedKFs) {
     if (pKFi->isBad()) continue;
 
     g2o::VertexSim3Expmap* VSim3 = new g2o::VertexSim3Expmap();
@@ -435,7 +436,7 @@ void Optimizer::OptimizeEssentialGraph(KeyFrame* pCurKF,
     vpBadPose[nIDi] = true;
   }
 
-  for (KeyFrame* pKFi : vpNonFixedKFs) {
+  for (std::shared_ptr<KeyFrame> pKFi : vpNonFixedKFs) {
     if (pKFi->isBad()) continue;
 
     const int nIDi = pKFi->mnId;
@@ -466,19 +467,19 @@ void Optimizer::OptimizeEssentialGraph(KeyFrame* pCurKF,
     vpBadPose[nIDi] = true;
   }
 
-  std::vector<KeyFrame*> vpKFs;
+  std::vector<std::shared_ptr<KeyFrame>> vpKFs;
   vpKFs.reserve(vpFixedKFs.size() + vpFixedCorrectedKFs.size() +
                 vpNonFixedKFs.size());
   vpKFs.insert(vpKFs.end(), vpFixedKFs.begin(), vpFixedKFs.end());
   vpKFs.insert(vpKFs.end(), vpFixedCorrectedKFs.begin(),
                vpFixedCorrectedKFs.end());
   vpKFs.insert(vpKFs.end(), vpNonFixedKFs.begin(), vpNonFixedKFs.end());
-  std::set<KeyFrame*> spKFs(vpKFs.begin(), vpKFs.end());
+  std::set<std::shared_ptr<KeyFrame>> spKFs(vpKFs.begin(), vpKFs.end());
 
   const Eigen::Matrix<double, 7, 7> matLambda =
       Eigen::Matrix<double, 7, 7>::Identity();
 
-  for (KeyFrame* pKFi : vpKFs) {
+  for (std::shared_ptr<KeyFrame> pKFi : vpKFs) {
     int num_connections = 0;
     const int nIDi = pKFi->mnId;
 
@@ -488,7 +489,7 @@ void Optimizer::OptimizeEssentialGraph(KeyFrame* pCurKF,
     if (vpGoodPose[nIDi]) correctedSwi = vCorrectedSwc[nIDi];
     if (vpBadPose[nIDi]) Swi = vScw[nIDi].inverse();
 
-    KeyFrame* pParentKFi = pKFi->GetParent();
+    std::shared_ptr<KeyFrame> pParentKFi = pKFi->GetParent();
 
     // Spanning tree edge
     if (pParentKFi && spKFs.find(pParentKFi) != spKFs.end()) {
@@ -522,11 +523,11 @@ void Optimizer::OptimizeEssentialGraph(KeyFrame* pCurKF,
     }
 
     // Loop edges
-    const std::set<KeyFrame*> sLoopEdges = pKFi->GetLoopEdges();
-    for (std::set<KeyFrame*>::const_iterator sit = sLoopEdges.begin(),
+    const std::set<std::shared_ptr<KeyFrame>> sLoopEdges = pKFi->GetLoopEdges();
+    for (std::set<std::shared_ptr<KeyFrame>>::const_iterator sit = sLoopEdges.begin(),
                                         send = sLoopEdges.end();
          sit != send; sit++) {
-      KeyFrame* pLKF = *sit;
+      std::shared_ptr<KeyFrame> pLKF = *sit;
       if (spKFs.find(pLKF) != spKFs.end() && pLKF->mnId < pKFi->mnId) {
         g2o::Sim3 Slw;
         bool bHasRelation = false;
@@ -555,11 +556,11 @@ void Optimizer::OptimizeEssentialGraph(KeyFrame* pCurKF,
     }
 
     // Covisibility graph edges
-    const std::vector<KeyFrame*> vpConnectedKFs =
+    const std::vector<std::shared_ptr<KeyFrame>> vpConnectedKFs =
         pKFi->GetCovisiblesByWeight(minFeat);
-    for (std::vector<KeyFrame*>::const_iterator vit = vpConnectedKFs.begin();
+    for (std::vector<std::shared_ptr<KeyFrame>>::const_iterator vit = vpConnectedKFs.begin();
          vit != vpConnectedKFs.end(); vit++) {
-      KeyFrame* pKFn = *vit;
+      std::shared_ptr<KeyFrame> pKFn = *vit;
       if (pKFn && pKFn != pParentKFi && !pKFi->hasChild(pKFn) &&
           !sLoopEdges.count(pKFn) && spKFs.find(pKFn) != spKFs.end()) {
         if (!pKFn->isBad() && pKFn->mnId < pKFi->mnId) {
@@ -605,7 +606,7 @@ void Optimizer::OptimizeEssentialGraph(KeyFrame* pCurKF,
   std::unique_lock<std::mutex> lock(pMap->mMutexMapUpdate);
 
   // SE3 Pose Recovering. Sim3:[sR t;0 1] -> SE3:[R t/s;0 1]
-  for (KeyFrame* pKFi : vpNonFixedKFs) {
+  for (std::shared_ptr<KeyFrame> pKFi : vpNonFixedKFs) {
     if (pKFi->isBad()) continue;
 
     const int nIDi = pKFi->mnId;
@@ -624,33 +625,34 @@ void Optimizer::OptimizeEssentialGraph(KeyFrame* pCurKF,
 
   // Correct points. Transform to "non-optimized" reference keyframe pose and
   // transform back with optimized pose
-  for (MapPoint* pMPi : vpNonCorrectedMPs) {
+  for (std::shared_ptr<MapPoint> pMPi : vpNonCorrectedMPs) {
     if (pMPi->isBad()) continue;
 
-    KeyFrame* pRefKF = pMPi->GetReferenceKeyFrame();
-    while (pRefKF->isBad()) {
-      if (!pRefKF) {
-        Verbose::PrintMess(
-            "MP " + std::to_string(pMPi->mnId) + " without a valid reference KF",
-            Verbose::VERBOSITY_DEBUG);
-        break;
+    if(std::shared_ptr<KeyFrame> pRefKF = (pMPi->GetReferenceKeyFrame()).lock()) {
+      while (pRefKF->isBad()) {
+        if (!pRefKF) {
+          Verbose::PrintMess("MP " + std::to_string(pMPi->mnId) + " without a valid reference KF", Verbose::VERBOSITY_DEBUG);
+          break;
+        }
+
+        pMPi->EraseObservation(pRefKF);
+        if(!(pRefKF = (pMPi->GetReferenceKeyFrame()).lock())) break;
       }
 
-      pMPi->EraseObservation(pRefKF);
-      pRefKF = pMPi->GetReferenceKeyFrame();
-    }
+      if (vpBadPose[pRefKF->mnId]) {
+        Sophus::SE3f TNonCorrectedwr = pRefKF->mTwcBefMerge;
+        Sophus::SE3f Twr = pRefKF->GetPoseInverse();
 
-    if (vpBadPose[pRefKF->mnId]) {
-      Sophus::SE3f TNonCorrectedwr = pRefKF->mTwcBefMerge;
-      Sophus::SE3f Twr = pRefKF->GetPoseInverse();
+        Eigen::Vector3f eigCorrectedP3Dw =
+            Twr * TNonCorrectedwr.inverse() * pMPi->GetWorldPos();
+        pMPi->SetWorldPos(eigCorrectedP3Dw);
 
-      Eigen::Vector3f eigCorrectedP3Dw =
-          Twr * TNonCorrectedwr.inverse() * pMPi->GetWorldPos();
-      pMPi->SetWorldPos(eigCorrectedP3Dw);
-
-      pMPi->UpdateNormalAndDepth();
+        pMPi->UpdateNormalAndDepth();
+      } else {
+        std::cout << "ERROR: MapPoint has a reference KF from another map" << std::endl;
+      }
     } else {
-      std::cout << "ERROR: MapPoint has a reference KF from another map" << std::endl;
+
     }
   }
 }
@@ -658,10 +660,10 @@ void Optimizer::OptimizeEssentialGraph(KeyFrame* pCurKF,
 
 
 void Optimizer::OptimizeEssentialGraph4DoF(
-    std::shared_ptr<Map> pMap, KeyFrame* pLoopKF, KeyFrame* pCurKF,
+    std::shared_ptr<Map> pMap, std::shared_ptr<KeyFrame> pLoopKF, std::shared_ptr<KeyFrame> pCurKF,
     const LoopClosing::KeyFrameAndPose& NonCorrectedSim3,
     const LoopClosing::KeyFrameAndPose& CorrectedSim3,
-    const std::map<KeyFrame*, std::set<KeyFrame*>>& LoopConnections) {
+    const std::map<std::shared_ptr<KeyFrame>, std::set<std::shared_ptr<KeyFrame>>>& LoopConnections) {
   // typedef g2o::BlockSolver<g2o::BlockSolverTraits<4, 4>> BlockSolver_4_4; // UNUSED
 
   // Setup optimizer
@@ -676,8 +678,8 @@ void Optimizer::OptimizeEssentialGraph4DoF(
 
   optimizer.setAlgorithm(solver);
 
-  const std::vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
-  const std::vector<MapPoint*> vpMPs = pMap->GetAllMapPoints();
+  const std::vector<std::shared_ptr<KeyFrame>> vpKFs = pMap->GetAllKeyFrames();
+  const std::vector<std::shared_ptr<MapPoint>> vpMPs = pMap->GetAllMapPoints();
 
   const unsigned int nMaxKFid = pMap->GetMaxKFid();
 
@@ -690,7 +692,7 @@ void Optimizer::OptimizeEssentialGraph4DoF(
   const int minFeat = 100;
   // Set KeyFrame vertices
   for (size_t i = 0, iend = vpKFs.size(); i < iend; i++) {
-    KeyFrame* pKF = vpKFs[i];
+    std::shared_ptr<KeyFrame> pKF = vpKFs[i];
     if (pKF->isBad()) continue;
 
     VertexPose4DoF* V4DoF;
@@ -732,16 +734,16 @@ void Optimizer::OptimizeEssentialGraph4DoF(
 
   // Set Loop edges
   // Edge4DoF* e_loop; // UNUSED
-  for (std::map<KeyFrame*, std::set<KeyFrame*>>::const_iterator
+  for (std::map<std::shared_ptr<KeyFrame>, std::set<std::shared_ptr<KeyFrame>>>::const_iterator
            mit = LoopConnections.begin(),
            mend = LoopConnections.end();
        mit != mend; mit++) {
-    KeyFrame* pKF = mit->first;
+    std::shared_ptr<KeyFrame> pKF = mit->first;
     const long unsigned int nIDi = pKF->mnId;
-    const std::set<KeyFrame*>& spConnections = mit->second;
+    const std::set<std::shared_ptr<KeyFrame>>& spConnections = mit->second;
     const g2o::Sim3 Siw = vScw[nIDi];
 
-    for (std::set<KeyFrame*>::const_iterator sit = spConnections.begin(),
+    for (std::set<std::shared_ptr<KeyFrame>>::const_iterator sit = spConnections.begin(),
                                         send = spConnections.end();
          sit != send; sit++) {
       const long unsigned int nIDj = (*sit)->mnId;
@@ -772,7 +774,7 @@ void Optimizer::OptimizeEssentialGraph4DoF(
 
   // 1. Set normal edges
   for (size_t i = 0, iend = vpKFs.size(); i < iend; i++) {
-    KeyFrame* pKF = vpKFs[i];
+    std::shared_ptr<KeyFrame> pKF = vpKFs[i];
 
     const int nIDi = pKF->mnId;
 
@@ -788,7 +790,7 @@ void Optimizer::OptimizeEssentialGraph4DoF(
       Siw = vScw[nIDi];
 
     // 1.1.0 Spanning tree edge
-    KeyFrame* pParentKF = nullptr;
+    std::shared_ptr<KeyFrame> pParentKF = nullptr;
     if (pParentKF) {
       int nIDj = pParentKF->mnId;
 
@@ -818,7 +820,7 @@ void Optimizer::OptimizeEssentialGraph4DoF(
     }
 
     // 1.1.1 Inertial edges
-    KeyFrame* prevKF = pKF->mPrevKF;
+    std::shared_ptr<KeyFrame> prevKF = pKF->mPrevKF;
     if (prevKF) {
       int nIDj = prevKF->mnId;
 
@@ -848,11 +850,11 @@ void Optimizer::OptimizeEssentialGraph4DoF(
     }
 
     // 1.2 Loop edges
-    const std::set<KeyFrame*> sLoopEdges = pKF->GetLoopEdges();
-    for (std::set<KeyFrame*>::const_iterator sit = sLoopEdges.begin(),
+    const std::set<std::shared_ptr<KeyFrame>> sLoopEdges = pKF->GetLoopEdges();
+    for (std::set<std::shared_ptr<KeyFrame>>::const_iterator sit = sLoopEdges.begin(),
                                         send = sLoopEdges.end();
          sit != send; sit++) {
-      KeyFrame* pLKF = *sit;
+      std::shared_ptr<KeyFrame> pLKF = *sit;
       if (pLKF->mnId < pKF->mnId) {
         g2o::Sim3 Swl;
 
@@ -881,11 +883,11 @@ void Optimizer::OptimizeEssentialGraph4DoF(
     }
 
     // 1.3 Covisibility graph edges
-    const std::vector<KeyFrame*> vpConnectedKFs =
+    const std::vector<std::shared_ptr<KeyFrame>> vpConnectedKFs =
         pKF->GetCovisiblesByWeight(minFeat);
-    for (std::vector<KeyFrame*>::const_iterator vit = vpConnectedKFs.begin();
+    for (std::vector<std::shared_ptr<KeyFrame>>::const_iterator vit = vpConnectedKFs.begin();
          vit != vpConnectedKFs.end(); vit++) {
-      KeyFrame* pKFn = *vit;
+      std::shared_ptr<KeyFrame> pKFn = *vit;
       if (pKFn && pKFn != pParentKF && pKFn != prevKF && pKFn != pKF->mNextKF &&
           !pKF->hasChild(pKFn) && !sLoopEdges.count(pKFn)) {
         if (!pKFn->isBad() && pKFn->mnId < pKF->mnId) {
@@ -928,7 +930,7 @@ void Optimizer::OptimizeEssentialGraph4DoF(
 
   // SE3 Pose Recovering. Sim3:[sR t;0 1] -> SE3:[R t/s;0 1]
   for (size_t i = 0; i < vpKFs.size(); i++) {
-    KeyFrame* pKFi = vpKFs[i];
+    std::shared_ptr<KeyFrame> pKFi = vpKFs[i];
 
     const int nIDi = pKFi->mnId;
 
@@ -946,24 +948,25 @@ void Optimizer::OptimizeEssentialGraph4DoF(
   // Correct points. Transform to "non-optimized" reference keyframe pose and
   // transform back with optimized pose
   for (size_t i = 0, iend = vpMPs.size(); i < iend; i++) {
-    MapPoint* pMP = vpMPs[i];
+    std::shared_ptr<MapPoint> pMP = vpMPs[i];
 
     if (pMP->isBad()) continue;
 
     int nIDr;
 
-    KeyFrame* pRefKF = pMP->GetReferenceKeyFrame();
-    nIDr = pRefKF->mnId;
+    if(std::shared_ptr<KeyFrame> pRefKF = (pMP->GetReferenceKeyFrame()).lock()) {
+      nIDr = pRefKF->mnId;
 
-    g2o::Sim3 Srw = vScw[nIDr];
-    g2o::Sim3 correctedSwr = vCorrectedSwc[nIDr];
+      g2o::Sim3 Srw = vScw[nIDr];
+      g2o::Sim3 correctedSwr = vCorrectedSwc[nIDr];
 
-    Eigen::Matrix<double, 3, 1> eigP3Dw = pMP->GetWorldPos().cast<double>();
-    Eigen::Matrix<double, 3, 1> eigCorrectedP3Dw =
-        correctedSwr.map(Srw.map(eigP3Dw));
-    pMP->SetWorldPos(eigCorrectedP3Dw.cast<float>());
+      Eigen::Matrix<double, 3, 1> eigP3Dw = pMP->GetWorldPos().cast<double>();
+      Eigen::Matrix<double, 3, 1> eigCorrectedP3Dw =
+          correctedSwr.map(Srw.map(eigP3Dw));
+      pMP->SetWorldPos(eigCorrectedP3Dw.cast<float>());
 
-    pMP->UpdateNormalAndDepth();
+      pMP->UpdateNormalAndDepth();      
+    }
   }
   pMap->IncreaseChangeIndex();
 }

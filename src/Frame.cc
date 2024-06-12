@@ -215,7 +215,7 @@ Frame::Frame(const Camera_ptr &cam, const cv::Mat &imLeft, const cv::Mat &imRigh
   UndistortKeyPoints();
   ComputeStereoMatches();
 
-  mvpMapPoints = std::vector<MapPoint *>(N, nullptr);
+  mvpMapPoints = std::vector<std::shared_ptr<MapPoint>>(N, nullptr);
   mvbOutlier = std::vector<bool>(N, false);
 
   if (pPrevF && pPrevF->HasVelocity()) {
@@ -306,7 +306,7 @@ Frame::Frame(const Camera_ptr &cam, const cv::Mat &imGray, const cv::Mat &imDept
 
   ComputeStereoFromRGBD(imDepth);
 
-  mvpMapPoints = std::vector<MapPoint *>(N, nullptr);
+  mvpMapPoints = std::vector<std::shared_ptr<MapPoint>>(N, nullptr);
 
   mvbOutlier = std::vector<bool>(N, false);
 
@@ -400,7 +400,7 @@ Frame::Frame(const Camera_ptr &cam, const cv::Mat &imGray, const double &timeSta
   mvDepth = std::vector<float>(N, -1);
   mnCloseMPs = 0;
 
-  mvpMapPoints = std::vector<MapPoint *>(N, nullptr);
+  mvpMapPoints = std::vector<std::shared_ptr<MapPoint>>(N, nullptr);
   //           = map<long unsigned int, cv::Point2f>(N, static_cast<cv::Point2f>(nullptr));
 
   mvbOutlier = std::vector<bool>(N, false);
@@ -515,7 +515,7 @@ Frame::Frame(const Camera_ptr &cam, const cv::Mat &imLeft, const cv::Mat &imRigh
   // Put all descriptors in the same matrix
   cv::vconcat(mDescriptors, mDescriptorsRight, mDescriptors);
 
-  mvpMapPoints = std::vector<MapPoint *>(N, static_cast<MapPoint *>(nullptr));
+  mvpMapPoints = std::vector<std::shared_ptr<MapPoint>>(N, static_cast<std::shared_ptr<MapPoint>>(nullptr));
   mvbOutlier = std::vector<bool>(N, false);
 
   AssignFeaturesToGrid();
@@ -626,7 +626,7 @@ Eigen::Vector3f Frame::GetRelativePoseTlr_translation() {
   return mTlr.translation();
 }
 
-bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
+bool Frame::isInFrustum(std::shared_ptr<MapPoint>pMP, float viewingCosLimit) {
   if (Nleft == -1) {
     pMP->mbTrackInView = false;
     pMP->mTrackProjX = -1;
@@ -695,7 +695,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
   }
 }
 
-bool Frame::ProjectPointDistort(MapPoint *pMP, cv::Point2f &kp, float &u, float &v) {
+bool Frame::ProjectPointDistort(std::shared_ptr<MapPoint>pMP, cv::Point2f &kp, float &u, float &v) {
   // 3D in absolute coordinates
   Eigen::Vector3f P = pMP->GetWorldPos();
 
@@ -1144,7 +1144,7 @@ void Frame::ComputeStereoFishEyeMatches() {
   }
 }
 
-bool Frame::isInFrustumChecks(MapPoint *pMP, float viewingCosLimit, bool bRight) {
+bool Frame::isInFrustumChecks(std::shared_ptr<MapPoint>pMP, float viewingCosLimit, bool bRight) {
   // 3D in absolute coordinates
   Eigen::Vector3f P = pMP->GetWorldPos();
 
