@@ -1,3 +1,4 @@
+backend-dir: no-server
 compatibility: ^1.0.0-alpha.1
 cpp-deps: !!set
   boost-regex: null
@@ -46,6 +47,7 @@ dependencies:
   morb_sophus: Thirdparty/Sophus
 description: An Accurate Open-Source Library for Visual-Inertial and Multi-Map SLAM
 docker-base: alpine
+frontend-dir: no-server
 icon: null
 include: include
 name: MORB SLAM

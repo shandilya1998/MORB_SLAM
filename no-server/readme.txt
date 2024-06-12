@@ -1,0 +1,1 @@
+This folder is here so then factory engine does not look in the scripts folder for backend/frontend code
