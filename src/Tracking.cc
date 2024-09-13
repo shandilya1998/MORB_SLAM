@@ -151,6 +151,7 @@ void Tracking::newParameterLoader(Settings& settings) {
 
   mFastInit = settings.fastIMUInit();
   mStationaryInit = settings.stationaryIMUInit();
+  mNewMapRelocalization = settings.newMapRelocalization();
 
   // IMU parameters
   Sophus::SE3f Tbc = settings.Tbc();
@@ -737,24 +738,23 @@ void Tracking::StereoInitialization() {
     mCurrentFrame.mpImuPreintegrated = mpImuPreintegratedFromLastKF;
   }
 
-  //TODO Add setting for relocalization attempt
-  if(mpAtlas->CountMaps() > 1 && true && Relocalization()) {
-      std::shared_ptr<Map> pCurrentMap = mpAtlas->GetCurrentMap();
-      
-      {
-        std::unique_lock<std::mutex> mergeLock(mpRelocalizationTargetMap->mMutexMapUpdate);
+  // This if statement runs Relocalization() only if there's an existing map and relocalization is enabled 
+  if(mpAtlas->CountMaps() > 1 && newMapRelocalizationEnabled() && Relocalization(true)) {
+    std::shared_ptr<Map> pCurrentMap = mpAtlas->GetCurrentMap();
+    {
+      std::unique_lock<std::mutex> mergeLock(mpRelocalizationTargetMap->mMutexMapUpdate);
 
-        mpAtlas->ChangeMap(mpRelocalizationTargetMap);
-        mpAtlas->SetMapBad(pCurrentMap);
-        mpAtlas->RemoveBadMaps();
+      mpAtlas->ChangeMap(mpRelocalizationTargetMap);
+      mpAtlas->SetMapBad(pCurrentMap);
+      mpAtlas->RemoveBadMaps();
 
-        if(!mHasGlobalOriginPose) {
-          Eigen::Matrix3f outputRotation = mCurrentFrame.GetPose().rotationMatrix().inverse() * mGlobalOriginPose.rotationMatrix();
-          Eigen::Vector3f outputTranslation = mGlobalOriginPose.rotationMatrix().inverse()*mGlobalOriginPose.translation() - mCurrentFrame.GetPose().rotationMatrix().inverse()*mCurrentFrame.GetPose().translation();
-          mInitialFramePose = Sophus::SE3f(outputRotation, outputTranslation);
-          mHasGlobalOriginPose = true;
-        }
+      if(!mHasGlobalOriginPose) {
+        Eigen::Matrix3f outputRotation = mCurrentFrame.GetPose().rotationMatrix().inverse() * mGlobalOriginPose.rotationMatrix();
+        Eigen::Vector3f outputTranslation = mGlobalOriginPose.rotationMatrix().inverse()*mGlobalOriginPose.translation() - mCurrentFrame.GetPose().rotationMatrix().inverse()*mCurrentFrame.GetPose().translation();
+        mInitialFramePose = Sophus::SE3f(outputRotation, outputTranslation);
+        mHasGlobalOriginPose = true;
       }
+    }
   } else {
     // Set Frame pose to the default pose
     mCurrentFrame.SetPose(getStereoInitDefaultPose());
@@ -1312,19 +1312,18 @@ bool Tracking::NeedNewKeyFrame() {
     }
   }
 
-  bool bNeedToInsertClose = (nTrackedClose < 100) && (nNonTrackedClose > 70);
+  const bool bNeedToInsertClose = (nTrackedClose < 100) && (nNonTrackedClose > 70);
 
   // Thresholds
-  float thRefRatio = 0.75f;
-  if (nKFs < 2) thRefRatio = 0.4f;
-  if (mSensor == CameraType::MONOCULAR) thRefRatio = 0.9f;
-  if (mpCamera2) thRefRatio = 0.75f;
-  if (mSensor == CameraType::IMU_MONOCULAR) {
-    if (mnMatchesInliers > 350)  // Points tracked from the local map
-      thRefRatio = 0.75f;
-    else
-      thRefRatio = 0.90f;
-  }
+  float thRefRatio;
+  if(mSensor == CameraType::IMU_MONOCULAR)
+    thRefRatio = (mnMatchesInliers > 350) ? 0.75f : 0.90f;
+  else if(mpCamera2)
+    thRefRatio = 0.75f;
+  else if(mSensor == CameraType::MONOCULAR)
+    thRefRatio = 0.9f;
+  else
+    thRefRatio = (nKFs < 2) ? 0.4f : 0.75f;
 
   // Condition 1a: More than "MaxFrames" have passed from last keyframe insertion
   const bool c1a = mCurrentFrame.mnId >= mnLastKeyFrameId + mFPS;
@@ -1334,11 +1333,9 @@ bool Tracking::NeedNewKeyFrame() {
   const bool c1c = mSensor.hasMulticam() && !mSensor.isInertial() && (mnMatchesInliers < nRefMatches * 0.25 || bNeedToInsertClose);
   // Condition 2: Few tracked points compared to reference keyframe. Lots of visual odometry compared to map matches.
   const bool c2 = (((mnMatchesInliers < nRefMatches * thRefRatio || bNeedToInsertClose)) && mnMatchesInliers > 15);
-
   // Temporal condition for Inertial cases
-  bool c3 = mpLastKeyFrame && mSensor.isInertial() && (mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= 0.5;
-
-  bool c4 = (((mnMatchesInliers < 75) && (mnMatchesInliers > 15)) || mState == TrackingState::RECENTLY_LOST) && (mSensor == CameraType::IMU_MONOCULAR);
+  const bool c3 = mpLastKeyFrame && mSensor.isInertial() && (mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= 0.5;
+  const bool c4 = (((mnMatchesInliers < 75) && (mnMatchesInliers > 15)) || mState == TrackingState::RECENTLY_LOST) && (mSensor == CameraType::IMU_MONOCULAR);
 
   if (((c1a || c1b || c1c) && c2) || c3 || c4) {
     // If the mapping accepts keyframes, insert keyframe. Otherwise send a signal to interrupt BA
@@ -1382,7 +1379,7 @@ void Tracking::CreateNewKeyFrame() {
     mCurrentFrame.UpdatePoseMatrices();
     // We sort points by the measured depth by the stereo/RGBD sensor. We create all those MapPoints whose depth < mThDepth.
     // If there are less than 100 close points we create the 100 closest.
-    int maxPoint = 100;
+    const int maxPoint = 100;
 
     std::vector<std::pair<float, int>> vDepthIdx;
     int N = (mCurrentFrame.Nleft != -1) ? mCurrentFrame.Nleft : mCurrentFrame.N;
@@ -1483,24 +1480,18 @@ void Tracking::SearchLocalPoints() {
 
   if (nToMatch > 0) {
     ORBmatcher matcher(0.8);
-    int th = 1; // this ultimately is a multiplier on the size of a square search area in a frame
-    if (mSensor == CameraType::RGBD || mSensor == CameraType::IMU_RGBD)
-      th = 3;
-    if (mpAtlas->isImuInitialized()) {
-      if (mpAtlas->GetCurrentMap()->GetInertialBA2())
-        th = 2;
-      else
-        th = 6;
-    } else if (!mpAtlas->isImuInitialized() && mSensor.isInertial()) {
-      th = 10;
-    }
 
-    // If the camera has been relocalised recently, perform a coarser search
-    if (mCurrentFrame.mnId < mnLastRelocFrameId + 2)
-      th = 5;
-
-    if (mState == TrackingState::LOST || mState == TrackingState::RECENTLY_LOST)  // Lost for less than 1 second
+    int th; // this ultimately is a multiplier on the size of a square search area in a frame
+    if (mState == TrackingState::LOST || mState == TrackingState::RECENTLY_LOST)
       th = 15;
+    else if (mCurrentFrame.mnId < mnLastRelocFrameId + 2)
+      th = 5;
+    else if (mpAtlas->isImuInitialized())
+      th = mpAtlas->GetCurrentMap()->GetInertialBA2() ? 2 : 6;
+    else if (!mpAtlas->isImuInitialized() && mSensor.isInertial())
+      th = 10;
+    else
+      th = (mSensor == CameraType::RGBD || mSensor == CameraType::IMU_RGBD) ? 3 : 1;
 
     matcher.SearchByProjection(mCurrentFrame, mvpLocalMapPoints, th, mpLocalMapper->mbFarPoints, mpLocalMapper->mThFarPoints);
   }
@@ -1644,14 +1635,20 @@ void Tracking::UpdateLocalKeyFrames() {
   }
 }
 
-bool Tracking::Relocalization() {
+bool Tracking::Relocalization(bool isNewMap) {
   Verbose::PrintMess("Starting relocalization", Verbose::VERBOSITY_NORMAL);
   // Compute Bag of Words Vector
   mCurrentFrame.ComputeBoW();
 
   // Relocalization is performed when tracking is lost
   // Track Lost: Query KeyFrame Database for keyframe candidates for relocalization
-  std::vector<std::shared_ptr<KeyFrame>> vpCandidateKFs = mpKeyFrameDB->DetectRelocalizationCandidates(&mCurrentFrame, mpAtlas->GetCurrentMap());
+  std::vector<std::shared_ptr<KeyFrame>> vpCandidateKFs;
+  
+  // If relocalization was run on map creation, don't check that mCurrentFrame is in the current Map
+  if(isNewMap)
+    vpCandidateKFs = mpKeyFrameDB->DetectRelocalizationCandidates(&mCurrentFrame, nullptr);
+  else
+    vpCandidateKFs = mpKeyFrameDB->DetectRelocalizationCandidates(&mCurrentFrame, mpAtlas->GetCurrentMap());
 
   if (vpCandidateKFs.empty()) {
     Verbose::PrintMess("There are not candidates", Verbose::VERBOSITY_NORMAL);
