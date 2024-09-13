@@ -138,7 +138,6 @@ Preintegrated::Preintegrated(Preintegrated *pImuPre)
       JPg(pImuPre->JPg),
       JPa(pImuPre->JPa),
       avgA(pImuPre->avgA),
-      avgW(pImuPre->avgW),
       bu(pImuPre->bu),
       db(pImuPre->db),
       mvMeasurements(pImuPre->mvMeasurements) {NumObjects++;}
@@ -159,7 +158,6 @@ void Preintegrated::CopyFrom(std::shared_ptr<Preintegrated> pImuPre) {
   JPg = pImuPre->JPg;
   JPa = pImuPre->JPa;
   avgA = pImuPre->avgA;
-  avgW = pImuPre->avgW;
   bu.CopyFrom(pImuPre->bu);
   db = pImuPre->db;
   mvMeasurements = pImuPre->mvMeasurements;
@@ -180,22 +178,45 @@ void Preintegrated::Initialize(const Bias &b_) {
   b = b_;
   bu = b_;
   avgA.setZero();
-  avgW.setZero();
   dT = 0.0f;
   mvMeasurements.clear();
 }
 
 void Preintegrated::Reintegrate() {
   std::unique_lock<std::mutex> lock(mMutex);
-  const std::vector<integrable> aux = mvMeasurements;
+  if(mvMeasurements.size() == 0) return;
+  const std::vector<Point> aux = mvMeasurements;
   Initialize(bu);
-  for (size_t i = 0; i < aux.size(); i++)
-    IntegrateNewMeasurement(aux[i].a, aux[i].w, aux[i].t);
+  IntegrateMeasurements(aux);
 }
 
-void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration, const Eigen::Vector3f &angVel, const float &dt) {
-  mvMeasurements.push_back(integrable(acceleration, angVel, dt));
+bool Preintegrated::IntegrateMeasurements(const std::vector<IMU::Point> &datapoints) {
+  bool hasGyro = false;
+  bool hasAccel = false;
+  for(auto itr = datapoints.begin(); itr != datapoints.end(); itr++) {
+    IMU::Point datapoint = *itr;
 
+    if(datapoint.hasAccel && datapoint.hasGyro) {
+      IntegrateNewIMUMeasurement(datapoint.a, datapoint.w, datapoint.t);
+      hasAccel = true;
+      hasGyro = true;
+    } else if(datapoint.hasAccel) {
+      IntegrateNewAccelMeasurement(datapoint.a, datapoint.t);
+      hasAccel = true;
+    } else if(datapoint.hasGyro) {
+      IntegrateNewGyroMeasurement(datapoint.w, datapoint.t);
+      hasGyro = true;
+    } else {
+      std::cout << "Warning: IMU Point has no data" << std::endl;
+      continue;
+    }
+
+    mvMeasurements.push_back(datapoint);
+  }
+  return hasGyro && hasAccel && (dT != 0);
+}
+
+void Preintegrated::IntegrateNewIMUMeasurement(const Eigen::Vector3f &acceleration, const Eigen::Vector3f &angVel, const float &dt) {
   // A is the Jacobian Matrix of the the robot state variables wrt each other (θ_x, θ_y, θ_z, v_x, v_y, v_z, p_x, p_y, p_z)
   /* (each term is a 3x3 block)
   A = | ∂θ/∂θ   ∂θ/∂v   ∂θ/∂p |
@@ -217,9 +238,8 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
   // ∂θ/∂na = ∂v/∂ng = ∂v/∂ng = 0 (Null Matrix)
   B.setZero();
 
-  Eigen::Vector3f a, w;
+  Eigen::Vector3f a;
   a << acceleration(0) - b.bax, acceleration(1) - b.bay, acceleration(2) - b.baz;
-  w << angVel(0) - b.bwx, angVel(1) - b.bwy, angVel(2) - b.bwz;
 
   // the robot can only move in the direction it's facing, therefore the acceleration relative to the origin is
   //   the acceleration vector a rotated by the current heading rotation matrix dR
@@ -229,8 +249,6 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
   dP = dP + dV * dt + dR * (0.5f * a * dt * dt);
   // the real velocity is dR*v
   dV = dV + dR * (a * dt);
-
-  avgW = (dT * avgW + dt * w) / (dT + dt);
 
   // a_hat is effectively a matrix representation of a, allowing for matrix multiplication
   Eigen::Matrix<float, 3, 3> a_hat = Sophus::SO3f::hat(a);
@@ -285,27 +303,90 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
   dT += dt;
 }
 
+// see the comments for IntegrateNewIMUMeasurement for documentation. This function only sets the matrix elements that depend on linear motion.
+void Preintegrated::IntegrateNewAccelMeasurement(const Eigen::Vector3f &acceleration, const float &dt) {
+  Eigen::Matrix<float, 9, 9> A;
+  A.setIdentity();
+
+  Eigen::Matrix<float, 9, 6> B;
+  B.setZero();
+
+  // only use the accel component of Nga Walk
+  Eigen::Matrix<float, 6, 6> N_walk = NgaWalk;
+  N_walk.block<3, 3>(0, 0) = Eigen::DiagonalMatrix<float, 3>(0, 0, 0);
+
+  Eigen::Vector3f a;
+  a << acceleration(0) - b.bax, acceleration(1) - b.bay, acceleration(2) - b.baz;
+
+  avgA = (dT * avgA + dt * dR * a) / (dT + dt);
+  dP = dP + dV * dt + dR * (0.5f * a * dt * dt);
+  dV = dV + dR * (a * dt);
+
+  Eigen::Matrix<float, 3, 3> a_hat = Sophus::SO3f::hat(a);
+
+  A.block<3, 3>(3, 0) = -dR * (a_hat * dt);
+  A.block<3, 3>(6, 0) = -dR * (0.5f * a_hat * dt * dt);
+  A.block<3, 3>(6, 3) = Eigen::DiagonalMatrix<float, 3>(dt, dt, dt);
+
+  B.block<3, 3>(3, 3) = dR * dt;
+  B.block<3, 3>(6, 3) = dR * 0.5f * dt * dt;
+
+  JPa = JPa + JVa * dt - dR * (0.5f * dt * dt);
+  JPg = JPg + JVg * dt - dR * a_hat * JRg * (0.5f * dt * dt);
+  JVa = JVa - dR * dt;
+  JVg = JVg - dR * a_hat * JRg * dt;
+
+  C.block<9, 9>(0, 0) = A * C.block<9, 9>(0, 0) * A.transpose() + B * Nga * B.transpose();
+  C.block<6, 6>(9, 9) += N_walk;
+
+  dT += dt;
+}
+
+// see the comments for IntegrateNewIMUMeasurement for documentation. This function only sets the matrix elements that depend on angular motion.
+void Preintegrated::IntegrateNewGyroMeasurement(const Eigen::Vector3f &angVel, const float &dt) {
+  Eigen::Matrix<float, 9, 9> A;
+  A.setIdentity();
+
+  Eigen::Matrix<float, 9, 6> B;
+  B.setZero();
+
+  // only use the gyro component of Nga Walk
+  Eigen::Matrix<float, 6, 6> N_walk = NgaWalk;
+  N_walk.block<3, 3>(3, 3) = Eigen::DiagonalMatrix<float, 3>(0, 0, 0);
+
+  IntegratedRotation dRi(angVel, b, dt);
+  dR = NormalizeRotation(dR * dRi.deltaR);
+
+  A.block<3, 3>(0, 0) = dRi.deltaR.transpose();
+  B.block<3, 3>(0, 0) = dRi.rightJ * dt;
+
+  C.block<9, 9>(0, 0) = A * C.block<9, 9>(0, 0) * A.transpose() + B * Nga * B.transpose();
+  C.block<6, 6>(9, 9) += N_walk;
+
+  JRg = dRi.deltaR.transpose() * JRg - dRi.rightJ * dt;
+}
+
 void Preintegrated::MergePrevious(std::shared_ptr<Preintegrated> pPrev) {
   if (pPrev == shared_from_this()) return;
 
   std::unique_lock<std::mutex> lock1(mMutex);
   std::unique_lock<std::mutex> lock2(pPrev->mMutex);
-  Bias bav;
-  bav.bwx = bu.bwx;
-  bav.bwy = bu.bwy;
-  bav.bwz = bu.bwz;
-  bav.bax = bu.bax;
-  bav.bay = bu.bay;
-  bav.baz = bu.baz;
 
-  const std::vector<integrable> aux1 = pPrev->mvMeasurements;
-  const std::vector<integrable> aux2 = mvMeasurements;
+  const std::vector<Point> aux = mvMeasurements;
 
-  Initialize(bav);
-  for (size_t i = 0; i < aux1.size(); i++)
-    IntegrateNewMeasurement(aux1[i].a, aux1[i].w, aux1[i].t);
-  for (size_t i = 0; i < aux2.size(); i++)
-    IntegrateNewMeasurement(aux2[i].a, aux2[i].w, aux2[i].t);
+  // save the current KF's updated Bias to buCurr
+  Bias buCurr;
+  buCurr.CopyFrom(bu);
+  
+  // copy the previous preintegrated, which overwrites the Bias
+  CopyFrom(pPrev);
+
+  // change the Bias back to the current value
+  b.CopyFrom(buCurr);
+  bu.CopyFrom(buCurr);
+
+  // append the current IMU measurements onto the previous preintegrated
+  IntegrateMeasurements(aux);
 }
 
 void Preintegrated::SetNewBias(const Bias &bu_) {
@@ -394,12 +475,12 @@ Eigen::Matrix<float, 6, 1> Preintegrated::GetDeltaBias() {
 }
 
 void Bias::CopyFrom(Bias &b) {
-  bax = b.bax;
-  bay = b.bay;
-  baz = b.baz;
-  bwx = b.bwx;
-  bwy = b.bwy;
-  bwz = b.bwz;
+  bax = std::isnan(b.bax) ? 0 : b.bax;
+  bay = std::isnan(b.bay) ? 0 : b.bay;
+  baz = std::isnan(b.baz) ? 0 : b.baz;
+  bwx = std::isnan(b.bwx) ? 0 : b.bwx;
+  bwy = std::isnan(b.bwy) ? 0 : b.bwy;
+  bwz = std::isnan(b.bwz) ? 0 : b.bwz;
 }
 
 std::ostream &operator<<(std::ostream &out, const Bias &b) {
@@ -419,8 +500,7 @@ std::ostream &operator<<(std::ostream &out, const Bias &b) {
   return out;
 }
 
-void Calib::Set(const Sophus::SE3<float> &sophTbc, const float &ng,
-                const float &na, const float &ngw, const float &naw) {
+void Calib::Set(const Sophus::SE3<float> &sophTbc, const float &ng, const float &na, const float &ngw, const float &naw) {
   mbIsSet = true;
   // ng = Gyro Noise, na = Accel. Noise, ngw = Gyro Walk Noise, naw = Accel. Walk Noise
   const float ng2 = ng * ng;
