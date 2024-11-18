@@ -144,8 +144,8 @@ private:
 
     // System threads: Local Mapping, Loop Closing, Viewer.
     // The Tracking thread "lives" in the main execution thread that creates the System object.
-    std::jthread mptLocalMapping;
-    std::jthread mptLoopClosing;
+    std::thread mptLocalMapping;
+    std::thread mptLoopClosing;
 
     TrackingState mTrackingState;
 

@@ -136,6 +136,9 @@ if [ ! -d "build" ] || [ ! -f "build/${configCompleteFile}" ]; then
         mkdir build 2> /dev/null
         cd build
         # https://unix.stackexchange.com/questions/31414/how-can-i-pass-a-command-line-argument-into-a-shell-script
+		echo "CMake args: ${cmake_args[@]}"
+		echo "vcpkg_arg:  ${vcpkg_arg}"
+		echo "g_arg:      ${g_arg}"
         if test -n "$vcpkg_arg"; then
           cmake .. ${g_arg} "${vcpkg_arg}" "${cmake_args[@]}" # pass arguments on to cmake
         else

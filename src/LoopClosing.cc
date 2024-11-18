@@ -675,7 +675,12 @@ void LoopClosing::CorrectLoop() {
     std::unique_lock<std::mutex> lock(mMutexGBA);
     mbStopGBA = true;
 
-    mnFullBAIdx++;
+	mnFullBAIdx++;
+	if(mpThreadGBA)
+	{
+		mpThreadGBA->detach();
+		delete mpThreadGBA;
+	}
     std::cout << "  Done!!" << std::endl;
   }
 
@@ -830,7 +835,7 @@ void LoopClosing::CorrectLoop() {
     mbRunningGBA = true;
     mbStopGBA = false;
     std::cout << "Creating CorrectLoop thread" << std::endl;
-    mpThreadGBA = std::jthread(&LoopClosing::RunGlobalBundleAdjustment, this, pLoopMap, mpCurrentKF->mnId);
+    mpThreadGBA = new std::thread(&LoopClosing::RunGlobalBundleAdjustment, this, pLoopMap, mpCurrentKF->mnId);
   }
 
   // Loop closed. Release Local Mapping.
@@ -857,8 +862,13 @@ void LoopClosing::MergeLocal() {
     std::unique_lock<std::mutex> lock(mMutexGBA);
     mbStopGBA = true;
 
-    mnFullBAIdx++;
-    bRelaunchBA = true;
+	mnFullBAIdx++;
+	if(mpThreadGBA)
+	{
+		mpThreadGBA->detach();
+		delete mpThreadGBA;
+	}
+	bRelaunchBA = true;
   }
 
   mpLocalMapper->RequestStop();
@@ -1253,7 +1263,7 @@ void LoopClosing::MergeLocal() {
     mbRunningGBA = true;
     mbStopGBA = false;
     std::cout << "Creating MergeLocal thread" << std::endl;
-    mpThreadGBA = std::jthread(&LoopClosing::RunGlobalBundleAdjustment, this, pMergeMap, mpCurrentKF->mnId);
+    mpThreadGBA = new std::thread(&LoopClosing::RunGlobalBundleAdjustment, this, pMergeMap, mpCurrentKF->mnId);
   }
 
   mpMergeMatchedKF->SetNotErase();
@@ -1283,6 +1293,12 @@ void LoopClosing::MergeLocal2() {
     std::unique_lock<std::mutex> lock(mMutexGBA);
     mbStopGBA = true;
     mnFullBAIdx++;
+	if(mpThreadGBA)
+	{
+		mpThreadGBA->detach();
+		delete mpThreadGBA;
+	}
+	// TODO check if this was deliberately removed
   }
 
   mpLocalMapper->RequestStop();

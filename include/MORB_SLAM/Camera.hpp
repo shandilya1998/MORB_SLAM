@@ -70,8 +70,8 @@ class Camera{
 
     bool shouldStop;
     
-    std::jthread lthread;
-    std::jthread rthread;
+    std::thread lthread;
+    std::thread rthread;
 
     void threadExec(std::deque<std::pair<ManagedPromise<bool>, std::function<void(void)>>> *jobs);
 public:

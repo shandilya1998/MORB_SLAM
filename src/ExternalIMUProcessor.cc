@@ -341,11 +341,11 @@ std::vector<MORB_SLAM::IMU::Point> CombineIMU(std::vector<MORB_SLAM::IMU::Point>
 }
 
 void dumpInfo(std::vector<double>& all_timestamps, const double prev_frame_timestamp, const double curr_frame_timestamp) {
-    std::cout << "Previous Timestamp: " << std::format("{}", prev_frame_timestamp) << std::endl;
+    std::cout << "Previous Timestamp: " << prev_frame_timestamp << std::endl;
     for(auto point : all_timestamps) {
-        std::cout << std::format("{}", point) << std::endl;
+        std::cout << point << std::endl;
     }
-    std::cout << "Current Timestamp: " << std::format("{}", curr_frame_timestamp) << std::endl;
+    std::cout << "Current Timestamp: " << curr_frame_timestamp << std::endl;
     std::cout << "_______________" << std::endl;
 }
 

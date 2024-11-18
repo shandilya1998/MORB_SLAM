@@ -60,7 +60,7 @@ void Run();
   MapDrawer mpMapDrawer;
   Tracking_ptr mpTracker;
   Atlas_ptr mpAtlas;
-  std::jthread mptViewer;
+  std::thread mptViewer;
   bool both;
 
   std::shared_ptr<const System> mpSystem;

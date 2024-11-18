@@ -131,10 +131,10 @@ System::System(const std::string& strVocFile, const std::string& strSettingsFile
   mpLoopCloser->SetLocalMapper(mpLocalMapper);
 
   std::cout << "Creating LocalMapping thread" << std::endl;
-  mptLocalMapping = std::jthread(&MORB_SLAM::LocalMapping::Run, mpLocalMapper);
+  mptLocalMapping = std::thread(&MORB_SLAM::LocalMapping::Run, mpLocalMapper);
 
   std::cout << "Creating LoopClosing thread" << std::endl;
-  mptLoopClosing = std::jthread(&MORB_SLAM::LoopClosing::Run, mpLoopCloser);
+  mptLoopClosing = std::thread(&MORB_SLAM::LoopClosing::Run, mpLoopCloser);
 
   // Fix verbosity
   Verbose::SetTh(Verbose::VERBOSITY_QUIET);

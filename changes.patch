@@ -1,0 +1,270 @@
+diff --git a/build.sh b/build.sh
+index a67f2bf..6cbc0e3 100755
+--- a/build.sh
++++ b/build.sh
+@@ -136,6 +136,9 @@ if [ ! -d "build" ] || [ ! -f "build/${configCompleteFile}" ]; then
+         mkdir build 2> /dev/null
+         cd build
+         # https://unix.stackexchange.com/questions/31414/how-can-i-pass-a-command-line-argument-into-a-shell-script
++		echo "CMake args: ${cmake_args[@]}"
++		echo "vcpkg_arg:  ${vcpkg_arg}"
++		echo "g_arg:      ${g_arg}"
+         if test -n "$vcpkg_arg"; then
+           cmake .. ${g_arg} "${vcpkg_arg}" "${cmake_args[@]}" # pass arguments on to cmake
+         else
+@@ -176,4 +179,4 @@ if [ $? -ne 0 ]; then
+         cd ..
+         echo "Install was not successful"
+         exit 3
+-fi
+\ No newline at end of file
++fi
+diff --git a/include/MORB_SLAM/Camera.hpp b/include/MORB_SLAM/Camera.hpp
+index 112ac03..e19b2ae 100644
+--- a/include/MORB_SLAM/Camera.hpp
++++ b/include/MORB_SLAM/Camera.hpp
+@@ -70,8 +70,8 @@ class Camera{
+ 
+     bool shouldStop;
+     
+-    std::jthread lthread;
+-    std::jthread rthread;
++    std::thread lthread;
++    std::thread rthread;
+ 
+     void threadExec(std::deque<std::pair<ManagedPromise<bool>, std::function<void(void)>>> *jobs);
+ public:
+@@ -89,4 +89,4 @@ public:
+ typedef std::shared_ptr<Camera> Camera_ptr;
+ typedef std::weak_ptr<Camera> Camera_wptr;
+ 
+-} // namespace MORB_SLAM
+\ No newline at end of file
++} // namespace MORB_SLAM
+diff --git a/include/MORB_SLAM/ExternalMapViewer.h b/include/MORB_SLAM/ExternalMapViewer.h
+index 2b53c5d..3be79c5 100644
+--- a/include/MORB_SLAM/ExternalMapViewer.h
++++ b/include/MORB_SLAM/ExternalMapViewer.h
+@@ -27,7 +27,7 @@ class ExternalMapViewer {
+         void pushValues(float x, float y, float z);
+ 
+     private:
+-        std::jthread threadEMV;
++        std::thread threadEMV;
+         Tracking_ptr mpTracker;
+         
+         // Websocket host address
+@@ -43,4 +43,4 @@ class ExternalMapViewer {
+         int parseTrackingState(const TrackingState state);
+ };
+ 
+-}
+\ No newline at end of file
++}
+diff --git a/include/MORB_SLAM/KeyFrameDatabase.h b/include/MORB_SLAM/KeyFrameDatabase.h
+index d089e79..fc9d124 100644
+--- a/include/MORB_SLAM/KeyFrameDatabase.h
++++ b/include/MORB_SLAM/KeyFrameDatabase.h
+@@ -21,6 +21,8 @@
+ 
+ #pragma once
+ 
++#include <boost/serialization/version.hpp>
++#include <boost/serialization/library_version_type.hpp>
+ #include <boost/serialization/base_object.hpp>
+ #include <boost/serialization/list.hpp>
+ #include <boost/serialization/vector.hpp>
+diff --git a/include/MORB_SLAM/LoopClosing.h b/include/MORB_SLAM/LoopClosing.h
+index 8a77ef8..666c4f8 100644
+--- a/include/MORB_SLAM/LoopClosing.h
++++ b/include/MORB_SLAM/LoopClosing.h
+@@ -166,7 +166,7 @@ protected:
+     bool mbRunningGBA;
+     bool mbStopGBA;
+     std::mutex mMutexGBA;
+-    std::jthread mpThreadGBA;
++    std::thread* mpThreadGBA;
+ 
+     // Fix scale in the stereo/RGB-D case
+     bool mbFixScale;
+diff --git a/include/MORB_SLAM/System.h b/include/MORB_SLAM/System.h
+index 3c5f4b8..a5bd3fd 100644
+--- a/include/MORB_SLAM/System.h
++++ b/include/MORB_SLAM/System.h
+@@ -144,8 +144,8 @@ private:
+ 
+     // System threads: Local Mapping, Loop Closing, Viewer.
+     // The Tracking thread "lives" in the main execution thread that creates the System object.
+-    std::jthread mptLocalMapping;
+-    std::jthread mptLoopClosing;
++    std::thread mptLocalMapping;
++    std::thread mptLoopClosing;
+ 
+     TrackingState mTrackingState;
+ 
+diff --git a/include/MORB_SLAM/Viewer.h b/include/MORB_SLAM/Viewer.h
+index 4bbd743..ba1bce6 100644
+--- a/include/MORB_SLAM/Viewer.h
++++ b/include/MORB_SLAM/Viewer.h
+@@ -60,7 +60,7 @@ void Run();
+   MapDrawer mpMapDrawer;
+   Tracking_ptr mpTracker;
+   Atlas_ptr mpAtlas;
+-  std::jthread mptViewer;
++  std::thread mptViewer;
+   bool both;
+ 
+   std::shared_ptr<const System> mpSystem;
+diff --git a/src/ExternalIMUProcessor.cc b/src/ExternalIMUProcessor.cc
+index 90cc3e4..96baf2e 100644
+--- a/src/ExternalIMUProcessor.cc
++++ b/src/ExternalIMUProcessor.cc
+@@ -341,13 +341,13 @@ std::vector<MORB_SLAM::IMU::Point> CombineIMU(std::vector<MORB_SLAM::IMU::Point>
+ }
+ 
+ void dumpInfo(std::vector<double>& all_timestamps, const double prev_frame_timestamp, const double curr_frame_timestamp) {
+-    std::cout << "Previous Timestamp: " << std::format("{}", prev_frame_timestamp) << std::endl;
++    std::cout << "Previous Timestamp: " << prev_frame_timestamp << std::endl;
+     for(auto point : all_timestamps) {
+-        std::cout << std::format("{}", point) << std::endl;
++        std::cout << point << std::endl;
+     }
+-    std::cout << "Current Timestamp: " << std::format("{}", curr_frame_timestamp) << std::endl;
++    std::cout << "Current Timestamp: " << curr_frame_timestamp << std::endl;
+     std::cout << "_______________" << std::endl;
+ }
+ 
+ } // namespace IMUProcessor
+-} // namespace MORB_SLAM
+\ No newline at end of file
++} // namespace MORB_SLAM
+diff --git a/src/ExternalMapViewer.cc b/src/ExternalMapViewer.cc
+index 5612005..8c4ce03 100644
+--- a/src/ExternalMapViewer.cc
++++ b/src/ExternalMapViewer.cc
+@@ -23,7 +23,7 @@ ExternalMapViewer::ExternalMapViewer(const System_ptr& pSystem, const std::strin
+     serverPort(_serverPort),
+     valuesPushed(false) {
+         std::cout << "Creating ExternalMapViewer thread" << std::endl;
+-        threadEMV = std::jthread(&ExternalMapViewer::run, this);
++        threadEMV = std::thread(&ExternalMapViewer::run, this);
+     }
+ 
+ ExternalMapViewer::~ExternalMapViewer() {
+@@ -112,4 +112,4 @@ std::vector<uint8_t> ExternalMapViewer::coordsToBinary(const std::vector<float>&
+         return binaryOutput;
+ }
+ 
+-}
+\ No newline at end of file
++}
+diff --git a/src/LoopClosing.cc b/src/LoopClosing.cc
+index 5ec4ca3..d359c53 100644
+--- a/src/LoopClosing.cc
++++ b/src/LoopClosing.cc
+@@ -675,7 +675,12 @@ void LoopClosing::CorrectLoop() {
+     std::unique_lock<std::mutex> lock(mMutexGBA);
+     mbStopGBA = true;
+ 
+-    mnFullBAIdx++;
++	mnFullBAIdx++;
++	if(mpThreadGBA)
++	{
++		mpThreadGBA->detach();
++		delete mpThreadGBA;
++	}
+     std::cout << "  Done!!" << std::endl;
+   }
+ 
+@@ -830,7 +835,7 @@ void LoopClosing::CorrectLoop() {
+     mbRunningGBA = true;
+     mbStopGBA = false;
+     std::cout << "Creating CorrectLoop thread" << std::endl;
+-    mpThreadGBA = std::jthread(&LoopClosing::RunGlobalBundleAdjustment, this, pLoopMap, mpCurrentKF->mnId);
++    mpThreadGBA = new std::thread(&LoopClosing::RunGlobalBundleAdjustment, this, pLoopMap, mpCurrentKF->mnId);
+   }
+ 
+   // Loop closed. Release Local Mapping.
+@@ -857,8 +862,13 @@ void LoopClosing::MergeLocal() {
+     std::unique_lock<std::mutex> lock(mMutexGBA);
+     mbStopGBA = true;
+ 
+-    mnFullBAIdx++;
+-    bRelaunchBA = true;
++	mnFullBAIdx++;
++	if(mpThreadGBA)
++	{
++		mpThreadGBA->detach();
++		delete mpThreadGBA;
++	}
++	bRelaunchBA = true;
+   }
+ 
+   mpLocalMapper->RequestStop();
+@@ -1253,7 +1263,7 @@ void LoopClosing::MergeLocal() {
+     mbRunningGBA = true;
+     mbStopGBA = false;
+     std::cout << "Creating MergeLocal thread" << std::endl;
+-    mpThreadGBA = std::jthread(&LoopClosing::RunGlobalBundleAdjustment, this, pMergeMap, mpCurrentKF->mnId);
++    mpThreadGBA = new std::thread(&LoopClosing::RunGlobalBundleAdjustment, this, pMergeMap, mpCurrentKF->mnId);
+   }
+ 
+   mpMergeMatchedKF->SetNotErase();
+@@ -1283,6 +1293,12 @@ void LoopClosing::MergeLocal2() {
+     std::unique_lock<std::mutex> lock(mMutexGBA);
+     mbStopGBA = true;
+     mnFullBAIdx++;
++	if(mpThreadGBA)
++	{
++		mpThreadGBA->detach();
++		delete mpThreadGBA;
++	}
++	// TODO check if this was deliberately removed
+   }
+ 
+   mpLocalMapper->RequestStop();
+diff --git a/src/System.cc b/src/System.cc
+index 2d02567..090cd72 100644
+--- a/src/System.cc
++++ b/src/System.cc
+@@ -131,10 +131,10 @@ System::System(const std::string& strVocFile, const std::string& strSettingsFile
+   mpLoopCloser->SetLocalMapper(mpLocalMapper);
+ 
+   std::cout << "Creating LocalMapping thread" << std::endl;
+-  mptLocalMapping = std::jthread(&MORB_SLAM::LocalMapping::Run, mpLocalMapper);
++  mptLocalMapping = std::thread(&MORB_SLAM::LocalMapping::Run, mpLocalMapper);
+ 
+   std::cout << "Creating LoopClosing thread" << std::endl;
+-  mptLoopClosing = std::jthread(&MORB_SLAM::LoopClosing::Run, mpLoopCloser);
++  mptLoopClosing = std::thread(&MORB_SLAM::LoopClosing::Run, mpLoopCloser);
+ 
+   // Fix verbosity
+   Verbose::SetTh(Verbose::VERBOSITY_QUIET);
+diff --git a/src/TwoViewReconstruction.cc b/src/TwoViewReconstruction.cc
+index 9fe486e..2f4f6c5 100644
+--- a/src/TwoViewReconstruction.cc
++++ b/src/TwoViewReconstruction.cc
+@@ -98,8 +98,8 @@ bool TwoViewReconstruction::Reconstruct(const std::vector<cv::KeyPoint> &vKeys1,
+   Eigen::Matrix3f H, F;
+ 
+   std::cout << "Creating Thread in TwoViewReconstruction" << std::endl;
+-  std::jthread threadH(&TwoViewReconstruction::FindHomography, this, std::ref(vbMatchesInliersH), std::ref(SH), std::ref(H));
+-  std::jthread threadF(&TwoViewReconstruction::FindFundamental, this, std::ref(vbMatchesInliersF), std::ref(SF), std::ref(F));
++  std::thread threadH(&TwoViewReconstruction::FindHomography, this, std::ref(vbMatchesInliersH), std::ref(SH), std::ref(H));
++  std::thread threadF(&TwoViewReconstruction::FindFundamental, this, std::ref(vbMatchesInliersF), std::ref(SF), std::ref(F));
+ 
+   // Wait until both threads have finished
+   threadH.join();
+diff --git a/src/Viewer.cc b/src/Viewer.cc
+index caa5442..71e9ca1 100644
+--- a/src/Viewer.cc
++++ b/src/Viewer.cc
+@@ -46,7 +46,7 @@ Viewer::Viewer(const System_ptr &pSystem)
+       mbClosed(false) {
+     newParameterLoader(*pSystem->getSettings());
+     std::cout << "Creating Viewer thread" << std::endl;
+-    mptViewer = std::jthread(&Viewer::Run, this);
++    mptViewer = std::thread(&Viewer::Run, this);
+ }
+ 
+ Viewer::~Viewer(){
