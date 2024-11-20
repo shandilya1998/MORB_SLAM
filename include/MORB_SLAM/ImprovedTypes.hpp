@@ -41,6 +41,7 @@ class CameraType{
   bool _hasMulticam;
 
  public:
+  CameraType(){};
   const char *toString;
 
   static const CameraType MONOCULAR;
@@ -60,6 +61,7 @@ inline std::ostream &operator<<(std::ostream &os, const CameraType &t){
     os << t.toString;
     return os;
 }
+typedef CameraType CameraType;
 
 namespace ImuInitializater{
   enum ImuInitType{ //enum values are used for math stuff -- DO NOT CHANGE

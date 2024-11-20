@@ -245,6 +245,20 @@ bool System::MapChanged() {
   }
 }
 
+void System::Shutdown(){
+  std::cout << "Shutdown" << std::endl;
+
+  mpLocalMapper->RequestFinish();
+  mpLoopCloser->RequestFinish();
+
+  if (mptLocalMapping.joinable()) {
+    mptLocalMapping.join();
+  }
+  if (mptLoopClosing.joinable()) {
+    mptLoopClosing.join();
+  }
+}
+
 System::~System() {
   std::cout << "Shutdown" << std::endl;
 

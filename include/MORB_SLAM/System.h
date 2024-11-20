@@ -88,6 +88,7 @@ class System {
     // It waits until all threads have finished.
     // This function must be called before saving the trajectory.
     virtual ~System();
+	void Shutdown();
 
     TrackingState GetTrackingState();
 
